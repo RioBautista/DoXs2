@@ -76,7 +76,8 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
   const [selectedTerritory, setSelectedTerritory] = useState<string | null>(null);
   const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined;
   const [mapError, setMapError] = useState<string | null>(null);
-  const mapData = summary?.callMap ?? null;
+  const rawMapData = summary?.callMap ?? null;
+  const mapData = rawMapData?.cycle && rawMapData?.days ? rawMapData : null;
   const availableDates = useMemo(() => Object.keys(mapData?.days ?? {}).sort(), [mapData?.days]);
 
   useEffect(() => {
@@ -220,8 +221,8 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
         <div className="flex items-center gap-2">
           <input
             type="date"
-            min={mapData?.cycle.startDate}
-            max={mapData?.cycle.endDate}
+            min={mapData?.cycle?.startDate}
+            max={mapData?.cycle?.endDate}
             value={selectedDate}
             onChange={(event) => setSelectedDate(event.target.value)}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
