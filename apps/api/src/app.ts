@@ -1,7 +1,7 @@
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { authenticateUser, loginRequestSchema } from './auth.js';
 import { checkDrupalMySQLConnection, debugDrupalMySQLAuth, debugDrupalMySQLUsersQuery } from './drupal-mysql-auth.js';
 import { clearSessionCookie, createSessionToken, getSessionCookieDiagnostics, getSessionFromRequest, setSessionCookie } from './session.js';
@@ -90,7 +90,7 @@ export function buildApp() {
 
 
 
-  app.post('/api/firebase/token', async (request, reply) => {
+  const handleFirebaseToken = async (request: FastifyRequest, reply: FastifyReply) => {
     const session = getSessionFromRequest(request);
     if (!session) {
       return reply.status(401).send({ ok: false, message: 'Not authenticated.' });
@@ -113,7 +113,10 @@ export function buildApp() {
       roles: scope.roles,
     });
     return reply.status(200).send({ ok: true, token, scopeHash: scope.scopeHash, clientId: scope.clientId });
-  });
+  };
+
+  app.get('/api/firebase/token', handleFirebaseToken);
+  app.post('/api/firebase/token', handleFirebaseToken);
 
   app.get('/api/dashboard/summary', async (request, reply) => {
     const session = getSessionFromRequest(request);
@@ -141,7 +144,7 @@ export function buildApp() {
     const summary = await getDashboardSummary(effectiveClientSlug, territories);
     try {
       const cachedSummary = await writeDashboardCache(summary, scope);
-      return reply.status(200).send(cachedSummary);
+      return reply.status(200).send({ ...summary, cache: cachedSummary.cache });
     } catch (error) {
       request.log.warn({ error }, 'Failed to write dashboard Firestore cache; returning live summary.');
       return reply.status(200).send({

@@ -43,7 +43,7 @@ export async function ensureFirebaseSession(): Promise<boolean> {
   if (auth.currentUser) return true;
 
   tokenPromise ??= (async () => {
-    const response = await fetch(`${API_BASE}/firebase/token`, { method: 'POST', credentials: 'include' });
+    const response = await fetch(`${API_BASE}/firebase/token`, { method: 'GET', credentials: 'include' });
     if (!response.ok) throw new Error('Firebase session token request failed.');
     const data = (await response.json()) as { token?: string };
     if (!data.token) throw new Error('Firebase session token missing.');

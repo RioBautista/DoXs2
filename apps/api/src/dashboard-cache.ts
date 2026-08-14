@@ -12,16 +12,8 @@ function stableHash(value: unknown) {
 }
 
 
-function withoutUndefined<T>(value: T): T {
-  if (Array.isArray(value)) return value.map((item) => withoutUndefined(item)) as T;
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .filter(([, item]) => item !== undefined)
-        .map(([key, item]) => [key, withoutUndefined(item)]),
-    ) as T;
-  }
-  return value;
+function toFirestoreJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function sanitizePathSegment(value: string) {
@@ -88,10 +80,13 @@ export async function readFreshDashboardCache(scope: DashboardScope): Promise<Da
 }
 
 export async function writeDashboardCache(summary: DashboardSummary, scope: DashboardScope, options: { sourceWatermark?: string | null } = {}): Promise<DashboardCacheDocument> {
+  // Keep the shared dashboard cache lightweight and Firestore-safe. The map payload is large and
+  // currently contains a nested shape Firestore rejects, so cache core dashboard data first.
+  const { callMap: _callMap, ...cacheableSummary } = summary;
   const generatedAt = new Date().toISOString();
   const expiresAt = new Date(Date.now() + CACHE_TTL_MS).toISOString();
   const doc: DashboardCacheDocument = {
-    ...summary,
+    ...cacheableSummary,
     ok: summary.ok,
     clientSlug: scope.clientId,
     viewKey: VIEW_KEY,
@@ -127,7 +122,7 @@ export async function writeDashboardCache(summary: DashboardSummary, scope: Dash
     },
   };
 
-  const sanitizedDoc = withoutUndefined(doc);
+  const sanitizedDoc = toFirestoreJson(doc);
   await getAdminFirestore().doc(scope.cachePath).set(sanitizedDoc, { merge: true });
   return sanitizedDoc;
 }

@@ -6,7 +6,7 @@ import { type DashboardScope, writeDashboardCache } from './dashboard-cache.js';
 
 const DEFAULT_CLIENTS = ['wert'];
 const DEFAULT_INTERVAL_MS = 60_000;
-const LEASE_TTL_MS = 45_000;
+const LEASE_TTL_MS = Number(process.env.DASHBOARD_CACHE_LEASE_TTL_MS ?? 120_000);
 const CHECK_TIMEOUT_MS = Number(process.env.DASHBOARD_CACHE_WATCH_TIMEOUT_MS ?? 45_000);
 const VIEW_KEY = 'dashboardSummary';
 
@@ -79,37 +79,40 @@ async function acquireLease(instanceId: string) {
   });
 }
 
-async function refreshAffectedDashboardCaches(clientId: string, changedTerritories: string[], sourceWatermark: string | null, logger: FastifyBaseLogger) {
+async function refreshDashboardScopeCaches(clientId: string, changedTerritories: string[], sourceWatermark: string | null, logger: FastifyBaseLogger) {
   const db = getAdminFirestore();
   const changed = new Set(changedTerritories);
   const scopeCaches = await db.collection(`iDoXs_Clients/${clientId}/scopeCaches`).listDocuments();
   let staleCount = 0;
   let refreshedCount = 0;
+  let skippedCount = 0;
 
   for (const scopeRef of scopeCaches) {
     const viewRef = scopeRef.collection('viewCaches').doc(VIEW_KEY);
     const snap = await viewRef.get();
     if (!snap.exists) continue;
 
-    const data = snap.data() as ScopeCacheDoc;
+    const data = snap.data() as ScopeCacheDoc & { stale?: boolean; expiresAt?: string };
     const territories = data.scopeDefinition?.territories ?? [];
-    if (!intersects(territories, changed)) continue;
-
-    staleCount += 1;
     const affectedTerritories = territories.filter((territory) => changed.has(territory));
-    await viewRef.set({
-      stale: true,
-      staleReason: 'itinerary-territory-watermark-advanced',
-      staleDetectedAt: new Date().toISOString(),
-      affectedTerritories,
-      sourceWatermark,
-      cache: {
-        ...(snap.data()?.cache ?? {}),
+    const changedScope = affectedTerritories.length > 0;
+
+    if (changedScope) {
+      staleCount += 1;
+      await viewRef.set({
         stale: true,
         staleReason: 'itinerary-territory-watermark-advanced',
         staleDetectedAt: new Date().toISOString(),
-      },
-    }, { merge: true });
+        affectedTerritories,
+        sourceWatermark,
+        cache: {
+          ...(snap.data()?.cache ?? {}),
+          stale: true,
+          staleReason: 'itinerary-territory-watermark-advanced',
+          staleDetectedAt: new Date().toISOString(),
+        },
+      }, { merge: true });
+    }
 
     try {
       const scopeHash = data.scopeHash ?? scopeRef.id;
@@ -127,11 +130,12 @@ async function refreshAffectedDashboardCaches(clientId: string, changedTerritori
       await writeDashboardCache(summary, scope, { sourceWatermark });
       refreshedCount += 1;
     } catch (error) {
-      logger.warn({ error, clientId, scopePath: viewRef.path }, 'Failed to refresh stale dashboard cache after itinerary change.');
+      skippedCount += 1;
+      logger.warn({ error, clientId, scopePath: viewRef.path }, 'Failed to refresh dashboard cache from scheduled freshness check.');
     }
   }
 
-  return { staleCount, refreshedCount };
+  return { staleCount, refreshedCount, skippedCount };
 }
 
 export async function runDashboardCacheFreshnessCheck(logger: FastifyBaseLogger) {
@@ -142,7 +146,7 @@ export async function runDashboardCacheFreshnessCheck(logger: FastifyBaseLogger)
   logger.info({ instanceId, clients: configuredClients() }, 'Dashboard cache freshness check started.');
 
   const db = getAdminFirestore();
-  const results = [] as Array<{ clientId: string; changedTerritories: number; staleCount: number; refreshedCount: number }>;
+  const results = [] as Array<{ clientId: string; changedTerritories: number; staleCount: number; refreshedCount: number; skippedCount: number }>;
 
   for (const clientId of configuredClients()) {
     logger.info({ clientId }, 'Checking itinerary territory watermarks.');
@@ -162,14 +166,14 @@ export async function runDashboardCacheFreshnessCheck(logger: FastifyBaseLogger)
     const sourceWatermark = maxIso(current.filter((row) => changedTerritories.includes(row.territoryId)).map((row) => row.latestVisitDate));
     const lastGlobalWatermark = maxIso([state.lastGlobalWatermark ?? '', ...Object.values(currentMap)].filter(Boolean));
 
-    let staleCount = 0;
-    let refreshedCount = 0;
     if (changedTerritories.length > 0) {
-      logger.info({ clientId, changedTerritories: changedTerritories.length, sampleTerritories: changedTerritories.slice(0, 10), sourceWatermark }, 'Itinerary changes detected; refreshing affected dashboard caches.');
-      const refreshed = await refreshAffectedDashboardCaches(clientId, changedTerritories, sourceWatermark, logger);
-      staleCount = refreshed.staleCount;
-      refreshedCount = refreshed.refreshedCount;
+      logger.info({ clientId, changedTerritories: changedTerritories.length, sampleTerritories: changedTerritories.slice(0, 10), sourceWatermark }, 'Itinerary changes detected; marking affected dashboard caches stale before refresh.');
     }
+
+    const refreshed = await refreshDashboardScopeCaches(clientId, changedTerritories, sourceWatermark, logger);
+    const staleCount = refreshed.staleCount;
+    const refreshedCount = refreshed.refreshedCount;
+    const skippedCount = refreshed.skippedCount;
 
     await stateRef.set({
       clientId,
@@ -181,8 +185,8 @@ export async function runDashboardCacheFreshnessCheck(logger: FastifyBaseLogger)
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
 
-    logger.info({ clientId, changedSinceIso, watermarkCount: current.length, changedTerritories: changedTerritories.length, staleCount, refreshedCount, lastGlobalWatermark }, 'Itinerary freshness client check completed.');
-    results.push({ clientId, changedTerritories: changedTerritories.length, staleCount, refreshedCount });
+    logger.info({ clientId, changedSinceIso, watermarkCount: current.length, changedTerritories: changedTerritories.length, staleCount, refreshedCount, skippedCount, lastGlobalWatermark }, 'Itinerary freshness client check completed.');
+    results.push({ clientId, changedTerritories: changedTerritories.length, staleCount, refreshedCount, skippedCount });
   }
 
   return { skipped: false, results };
