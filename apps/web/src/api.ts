@@ -1,6 +1,6 @@
-import type { DashboardSummary, LoginUser } from '@doxs/shared';
+import type { DashboardSummary, LoginUser, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
 
-export type { DashboardSummary } from '@doxs/shared';
+export type { DashboardSummary, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
 
 type LoginRequest = {
   username: string;
@@ -77,5 +77,38 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
   if (!response.ok) {
     throw new Error(data.message ?? 'Dashboard request failed.');
   }
+  return data;
+}
+
+
+export type ReportsListResponse = {
+  ok: boolean;
+  reports?: ReportDefinitionSummary[];
+  message?: string;
+};
+
+export async function listReports(): Promise<ReportsListResponse> {
+  const response = await fetchJson(`${API_BASE}/reports`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  const data = (await response.json()) as ReportsListResponse;
+  if (!response.ok) return { ok: false, message: data.message ?? 'Reports request failed.' };
+  return data;
+}
+
+export async function runReport(reportId: string, filters: Record<string, string>): Promise<ReportRunResult> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== '') params.set(key, value);
+  }
+  const response = await fetchJson(`${API_BASE}/reports/${encodeURIComponent(reportId)}/run?${params.toString()}`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  const data = (await response.json()) as ReportRunResult;
+  if (!response.ok) return { ok: false, message: data.message ?? 'Report execution failed.', report: data.report };
   return data;
 }
