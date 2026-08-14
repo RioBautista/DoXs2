@@ -8,6 +8,7 @@ import { getClientContext, getDisplayClientName } from './lib/client';
 
 const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })));
 const ReportsPage = lazy(() => import('./components/ReportsPage').then((module) => ({ default: module.ReportsPage })));
+const DoctorsPage = lazy(() => import('./components/DoctorsPage').then((module) => ({ default: module.DoctorsPage })));
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -41,6 +42,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
 
 function normalizePath(pathname: string) {
   if (pathname === '/reports' || pathname.startsWith('/reports/')) return '/reports';
+  if (pathname === '/doctors' || pathname.startsWith('/doctors/')) return '/doctors';
   if (pathname === '/login') return '/login';
   return '/';
 }
@@ -54,6 +56,7 @@ function navigate(path: string) {
 function AppShell({ session, activePath, onLogout }: { session: AuthSession; activePath: string; onLogout: () => void }) {
   const activeClientName = getDisplayClientName(session.clientSlug);
   const isReports = activePath === '/reports';
+  const isDoctors = activePath === '/doctors';
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -65,7 +68,7 @@ function AppShell({ session, activePath, onLogout }: { session: AuthSession; act
               <span className="text-slate-300">•</span>
               <span className="inline-flex items-center gap-1 text-emerald-600"><ShieldCheck className="h-4 w-4" /> Authenticated</span>
             </div>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{isReports ? 'Reports' : 'Dashboard'}</h1>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{isReports ? 'Reports' : isDoctors ? 'Doctors' : 'Dashboard'}</h1>
             <p className="mt-1 text-sm text-slate-500">Welcome, {session.user.displayName}. This workspace is scoped to {activeClientName}.</p>
           </div>
           <button className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50" onClick={onLogout}>
@@ -79,7 +82,7 @@ function AppShell({ session, activePath, onLogout }: { session: AuthSession; act
           <button
             type="button"
             onClick={() => navigate('/')}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${!isReports ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${!isReports && !isDoctors ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
           >
             Dashboard
           </button>
@@ -90,11 +93,18 @@ function AppShell({ session, activePath, onLogout }: { session: AuthSession; act
           >
             Reports
           </button>
+          <button
+            type="button"
+            onClick={() => navigate('/doctors')}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${isDoctors ? 'bg-brand-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            Doctors
+          </button>
         </nav>
 
         <AppErrorBoundary>
           <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">Loading…</div>}>
-            {isReports ? <ReportsPage clientName={activeClientName} /> : <Dashboard session={session} />}
+            {isReports ? <ReportsPage clientName={activeClientName} /> : isDoctors ? <DoctorsPage clientName={activeClientName} /> : <Dashboard session={session} />}
           </Suspense>
         </AppErrorBoundary>
       </section>
