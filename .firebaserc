@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "doxs2-e3d72"
+  },
+  "targets": {
+    "doxs2-e3d72": {
+      "hosting": {
+        "doccs-as": [
+          "doccs-as"
+        ]
+      }
+    }
+  }
+}

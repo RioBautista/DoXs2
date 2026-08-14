@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /systemDocumentation/{doc=**} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /iDoXs_Clients/{clientId}/businessRules/{doc=**} {
+      allow read: if request.auth != null && request.auth.token.clientId == clientId;
+      allow write: if false;
+    }
+
+    match /iDoXs_Clients/{clientId}/scopeCaches/{scopeHash}/viewCaches/{viewKey} {
+      allow read: if request.auth != null
+        && request.auth.token.clientId == clientId
+        && request.auth.token.scopeHash == scopeHash;
+      allow write: if false;
+    }
+
+    match /iDoXs_Clients/{clientId}/users/{userId}/{doc=**} {
+      allow read: if request.auth != null
+        && request.auth.token.clientId == clientId
+        && request.auth.token.userId == userId;
+      allow write: if false;
+    }
+  }
+}

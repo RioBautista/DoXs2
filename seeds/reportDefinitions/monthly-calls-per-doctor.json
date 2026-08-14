@@ -1,0 +1,27 @@
+{
+  "title": "Monthly Calls Per Doctor",
+  "description": "Cycle/date-range call count by territory and doctor, modeled after the legacy rptMonthlyCallsPerDoctor report.",
+  "category": "Field Activity",
+  "status": "enabled",
+  "clientSlugs": [],
+  "allowedRoles": ["DocCS Admin", "Admin", "District Manager", "Manager", "Medical Representative"],
+  "outputs": ["html", "csv"],
+  "filters": [
+    { "id": "startDate", "label": "Start date", "type": "date", "required": true },
+    { "id": "endDate", "label": "End date", "type": "date", "required": true }
+  ],
+  "columns": [
+    { "id": "territory_id", "label": "Territory" },
+    { "id": "doctor_name", "label": "Doctor" },
+    { "id": "specialty", "label": "Specialty" },
+    { "id": "frequency", "label": "Frequency" },
+    { "id": "class_code", "label": "Class" },
+    { "id": "calls", "label": "Calls", "type": "number", "align": "right" }
+  ],
+  "source": {
+    "type": "mssql",
+    "maxRows": 2000,
+    "territoryScope": { "mode": "required" },
+    "sql": "select top 2000 ltrim(rtrim(cast(i.TERRITORY_ID as varchar(128)))) as territory_id, nullif(ltrim(rtrim(concat(isnull(d.LAST_NAME, ''), ', ', isnull(d.FIRST_NAME, '')))), ',') as doctor_name, ltrim(rtrim(cast(d.SPECIALTY_CODE as varchar(128)))) as specialty, isnull(ltrim(rtrim(cast(dc.FREQUENCY as varchar(128)))), '***') as frequency, isnull(ltrim(rtrim(cast(dc.CLASS_CODE as varchar(128)))), '***') as class_code, count_big(*) as calls from [dbo].[ITINERARY] i left join [dbo].[DOCTOR] d on i.MD_ID = d.MD_ID left join [dbo].[DOCTOR_CLINIC] dc on i.MD_ID = dc.MD_ID and i.TERRITORY_ID = dc.TERRITORY_ID where try_convert(date, i.VISIT_DATE) >= @startDate and try_convert(date, i.VISIT_DATE) <= @endDate {{territoryPredicate:i.TERRITORY_ID}} group by ltrim(rtrim(cast(i.TERRITORY_ID as varchar(128)))), nullif(ltrim(rtrim(concat(isnull(d.LAST_NAME, ''), ', ', isnull(d.FIRST_NAME, '')))), ','), ltrim(rtrim(cast(d.SPECIALTY_CODE as varchar(128)))), isnull(ltrim(rtrim(cast(dc.FREQUENCY as varchar(128)))), '***'), isnull(ltrim(rtrim(cast(dc.CLASS_CODE as varchar(128)))), '***') order by territory_id, doctor_name"
+  }
+}
