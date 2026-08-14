@@ -76,3 +76,37 @@ REPORTS_COLLECTION=reportDefinitions npm run seed:reports
 ```
 
 The first three definitions are global/core reports, so `clientSlugs` is intentionally empty. Client-specific reports, such as Oxford Sales Order / ETR, should use explicit `clientSlugs` when added later.
+
+
+## Readable business formula fields
+
+In addition to the executable `source.sql`, report definitions should include readable metadata for admins and business reviewers in Firestore:
+
+```json
+{
+  "businessFormulas": [
+    {
+      "id": "performance",
+      "label": "Performance %",
+      "description": "Actual calls divided by effective planned calls after acceptable misses.",
+      "formula": "Actual / (Planned - Acceptable) * 100",
+      "zeroDenominatorBehavior": "return null when Planned - Acceptable is zero"
+    }
+  ],
+  "dataSourceDefinition": {
+    "type": "mssql",
+    "classification": "global-core-report",
+    "legacyReportFile": "rptPerformanceReport.php",
+    "primaryTables": ["ITINERARY", "PSR_ITINERARY", "PSR"],
+    "requiredFields": {
+      "ITINERARY": ["MONTH", "YEAR", "TERRITORY_ID"]
+    },
+    "scopeRules": ["client context", "required territory scope"],
+    "filtersApplied": ["fiscalYear", "periodCode"],
+    "grain": "district + territory",
+    "notes": "Human-readable notes for reviewers."
+  }
+}
+```
+
+`businessFormulas` is for business/audit readability. `dataSourceDefinition` explains where the report data comes from and how it is scoped. `source.sql` remains the executable API source.

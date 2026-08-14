@@ -4,11 +4,30 @@
   "category": "Global Reports / Field Performance",
   "status": "enabled",
   "clientSlugs": [],
-  "allowedRoles": ["DocCS Admin", "Admin", "District Manager", "Manager", "Medical Representative"],
-  "outputs": ["html", "csv"],
+  "allowedRoles": [
+    "DocCS Admin",
+    "Admin",
+    "District Manager",
+    "Manager",
+    "Medical Representative"
+  ],
+  "outputs": [
+    "html",
+    "csv"
+  ],
   "filters": [
-    { "id": "fiscalYear", "label": "Fiscal year", "type": "number", "required": true },
-    { "id": "periodCode", "label": "Period code", "type": "number", "required": true },
+    {
+      "id": "fiscalYear",
+      "label": "Fiscal year",
+      "type": "number",
+      "required": true
+    },
+    {
+      "id": "periodCode",
+      "label": "Period code",
+      "type": "number",
+      "required": true
+    },
     {
       "id": "reportType",
       "label": "Report type",
@@ -16,24 +35,126 @@
       "required": true,
       "defaultValue": "YTD",
       "options": [
-        { "label": "Cycle", "value": "Cycle" },
-        { "label": "Year to date", "value": "YTD" }
+        {
+          "label": "Cycle",
+          "value": "Cycle"
+        },
+        {
+          "label": "Year to date",
+          "value": "YTD"
+        }
       ]
     }
   ],
   "columns": [
-    { "id": "district_id", "label": "District" },
-    { "id": "territory_id", "label": "Territory ID" },
-    { "id": "territory_name", "label": "Territory" },
-    { "id": "frequency", "label": "Frequency" },
-    { "id": "doctor_count", "label": "Doctor Count", "type": "number", "align": "right" },
-    { "id": "visited", "label": "Visited", "type": "number", "align": "right" },
-    { "id": "percentage", "label": "Percentage", "type": "number", "align": "right", "format": "percent" }
+    {
+      "id": "district_id",
+      "label": "District"
+    },
+    {
+      "id": "territory_id",
+      "label": "Territory ID"
+    },
+    {
+      "id": "territory_name",
+      "label": "Territory"
+    },
+    {
+      "id": "frequency",
+      "label": "Frequency"
+    },
+    {
+      "id": "doctor_count",
+      "label": "Doctor Count",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "visited",
+      "label": "Visited",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "percentage",
+      "label": "Percentage",
+      "type": "number",
+      "align": "right",
+      "format": "percent"
+    }
   ],
   "source": {
     "type": "mssql",
     "maxRows": 5000,
-    "territoryScope": { "mode": "required" },
+    "territoryScope": {
+      "mode": "required"
+    },
     "sql": "with doctor_reach as (select i.[MONTH] as period_code, i.[YEAR] as fiscal_year, i.MD_ID, ltrim(rtrim(cast(i.TERRITORY_ID as varchar(128)))) as territory_id, i.FREQUENCY as frequency, count(i.VISIT_DATE) as visited, max(pi.DISTRICT_ID) as district_id, max(pi.PSR_ID) as psr_id from [dbo].[ITINERARY] i join [dbo].[PSR_ITINERARY] pi on i.TERRITORY_ID = pi.TERRITORY_ID and i.ITINERARY_DATE = pi.ITINERARY_DATE where i.[YEAR] = @fiscalYear and ((@reportType = 'Cycle' and i.[MONTH] = @periodCode) or (@reportType <> 'Cycle' and i.[MONTH] <= @periodCode)) {{territoryPredicate:i.TERRITORY_ID}} group by i.[MONTH], i.[YEAR], i.MD_ID, i.TERRITORY_ID, i.FREQUENCY) select top 5000 district_id, territory_id, nullif(ltrim(rtrim(concat('(', territory_id, ') ', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') as territory_name, concat(cast(isnull(frequency, 0) as varchar(32)), 'x') as frequency, count_big(*) as doctor_count, sum(case when visited = 0 then 0 else 1 end) as visited, cast(case when count_big(*) = 0 then null else (sum(case when visited = 0 then 0 else 1 end) * 100.0 / count_big(*)) end as decimal(18,2)) as percentage from doctor_reach dr left join [dbo].[PSR] p on p.PSR_ID = dr.psr_id where isnull(p.TERRITORY_ID, '') not in ('RRICT') group by district_id, territory_id, nullif(ltrim(rtrim(concat('(', territory_id, ') ', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),'), frequency order by district_id, territory_id, frequency"
+  },
+  "businessFormulas": [
+    {
+      "id": "doctor_count",
+      "label": "Doctor Count",
+      "description": "Count of doctors in the selected territory/frequency scope for the fiscal year/period selection.",
+      "formula": "count(distinct doctor in scope)"
+    },
+    {
+      "id": "visited",
+      "label": "Visited",
+      "description": "Count of doctors with at least one visit date in the selected period scope.",
+      "formula": "sum(case when count(visit_date) > 0 then 1 else 0 end)"
+    },
+    {
+      "id": "percentage",
+      "label": "Reach %",
+      "description": "Percentage of doctors reached for the frequency group.",
+      "formula": "(Visited / Doctor Count) * 100",
+      "zeroDenominatorBehavior": "return null when Doctor Count is zero"
+    }
+  ],
+  "dataSourceDefinition": {
+    "type": "mssql",
+    "classification": "global-core-report",
+    "legacyReportFile": "rptCallReachPerFrequency.php",
+    "primaryTables": [
+      "ITINERARY",
+      "PSR_ITINERARY",
+      "PSR"
+    ],
+    "requiredFields": {
+      "ITINERARY": [
+        "MONTH",
+        "YEAR",
+        "MD_ID",
+        "TERRITORY_ID",
+        "FREQUENCY",
+        "VISIT_DATE",
+        "ITINERARY_DATE"
+      ],
+      "PSR_ITINERARY": [
+        "TERRITORY_ID",
+        "ITINERARY_DATE",
+        "DISTRICT_ID",
+        "PSR_ID"
+      ],
+      "PSR": [
+        "PSR_ID",
+        "TERRITORY_ID",
+        "FIRST_NAME",
+        "LAST_NAME"
+      ]
+    },
+    "scopeRules": [
+      "client context",
+      "required territory scope",
+      "exclude RRICT territory where present"
+    ],
+    "filtersApplied": [
+      "fiscalYear",
+      "periodCode",
+      "reportType Cycle/YTD"
+    ],
+    "grain": "district + territory + frequency",
+    "notes": "Models legacy Call Reach by Frequency. For Cycle, match periodCode exactly. For YTD, include periods <= periodCode."
   }
 }

@@ -4,11 +4,30 @@
   "category": "Global Reports / Field Performance",
   "status": "enabled",
   "clientSlugs": [],
-  "allowedRoles": ["DocCS Admin", "Admin", "District Manager", "Manager", "Medical Representative"],
-  "outputs": ["html", "csv"],
+  "allowedRoles": [
+    "DocCS Admin",
+    "Admin",
+    "District Manager",
+    "Manager",
+    "Medical Representative"
+  ],
+  "outputs": [
+    "html",
+    "csv"
+  ],
   "filters": [
-    { "id": "fiscalYear", "label": "Fiscal year", "type": "number", "required": true },
-    { "id": "periodCode", "label": "Period code", "type": "number", "required": true },
+    {
+      "id": "fiscalYear",
+      "label": "Fiscal year",
+      "type": "number",
+      "required": true
+    },
+    {
+      "id": "periodCode",
+      "label": "Period code",
+      "type": "number",
+      "required": true
+    },
     {
       "id": "reportType",
       "label": "Report type",
@@ -16,25 +35,152 @@
       "required": true,
       "defaultValue": "YTD",
       "options": [
-        { "label": "Cycle", "value": "Cycle" },
-        { "label": "Year to date", "value": "YTD" }
+        {
+          "label": "Cycle",
+          "value": "Cycle"
+        },
+        {
+          "label": "Year to date",
+          "value": "YTD"
+        }
       ]
     }
   ],
   "columns": [
-    { "id": "district_id", "label": "District" },
-    { "id": "territory_id", "label": "Territory ID" },
-    { "id": "territory_name", "label": "Territory" },
-    { "id": "planned", "label": "Planned", "type": "number", "align": "right" },
-    { "id": "actual", "label": "Actual", "type": "number", "align": "right" },
-    { "id": "missed", "label": "Missed", "type": "number", "align": "right" },
-    { "id": "acceptable", "label": "Acceptable", "type": "number", "align": "right" },
-    { "id": "performance", "label": "Performance", "type": "number", "align": "right", "format": "percent" }
+    {
+      "id": "district_id",
+      "label": "District"
+    },
+    {
+      "id": "territory_id",
+      "label": "Territory ID"
+    },
+    {
+      "id": "territory_name",
+      "label": "Territory"
+    },
+    {
+      "id": "planned",
+      "label": "Planned",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "actual",
+      "label": "Actual",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "missed",
+      "label": "Missed",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "acceptable",
+      "label": "Acceptable",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "performance",
+      "label": "Performance",
+      "type": "number",
+      "align": "right",
+      "format": "percent"
+    }
   ],
   "source": {
     "type": "mssql",
     "maxRows": 5000,
-    "territoryScope": { "mode": "required" },
+    "territoryScope": {
+      "mode": "required"
+    },
     "sql": "select top 5000 pi.DISTRICT_ID as district_id, ltrim(rtrim(cast(pi.TERRITORY_ID as varchar(128)))) as territory_id, nullif(ltrim(rtrim(concat('(', pi.TERRITORY_ID, ') ', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') as territory_name, count_big(*) as planned, sum(case when i.VISIT_DATE is not null then 1 else 0 end) as actual, sum(case when i.VISIT_DATE is null then 1 else 0 end) as missed, sum(case when i.REASON_CODE <> 'V' and i.REASON_CODE <> '0' then 1 else 0 end) as acceptable, cast(case when (count_big(*) - sum(case when i.REASON_CODE <> 'V' and i.REASON_CODE <> '0' then 1 else 0 end)) = 0 then null else (sum(case when i.VISIT_DATE is not null then 1 else 0 end) * 100.0 / (count_big(*) - sum(case when i.REASON_CODE <> 'V' and i.REASON_CODE <> '0' then 1 else 0 end))) end as decimal(18,2)) as performance from [dbo].[ITINERARY] i join [dbo].[PSR_ITINERARY] pi on i.ITINERARY_DATE = pi.ITINERARY_DATE and i.PSR_ID = pi.PSR_ID join [dbo].[PSR] p on i.PSR_ID = p.PSR_ID left join [dbo].[DOCTOR_CLINIC] dc on i.MD_ID = dc.MD_ID and i.TERRITORY_ID = dc.TERRITORY_ID where i.[YEAR] = @fiscalYear and ((@reportType = 'Cycle' and i.[MONTH] = @periodCode) or (@reportType <> 'Cycle' and i.[MONTH] <= @periodCode)) and p.TERRITORY_ID not in ('RRICT') {{territoryPredicate:i.TERRITORY_ID}} group by pi.DISTRICT_ID, pi.TERRITORY_ID, nullif(ltrim(rtrim(concat('(', pi.TERRITORY_ID, ') ', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') order by district_id, territory_id"
+  },
+  "businessFormulas": [
+    {
+      "id": "planned",
+      "label": "Planned",
+      "description": "Total itinerary rows in the selected cycle/YTD and territory scope.",
+      "formula": "count(*)"
+    },
+    {
+      "id": "actual",
+      "label": "Actual",
+      "description": "Planned calls with a non-null visit date.",
+      "formula": "sum(case when VISIT_DATE is not null then 1 else 0 end)"
+    },
+    {
+      "id": "missed",
+      "label": "Missed",
+      "description": "Planned calls without a visit date.",
+      "formula": "sum(case when VISIT_DATE is null then 1 else 0 end)"
+    },
+    {
+      "id": "acceptable",
+      "label": "Acceptable Missed",
+      "description": "Legacy acceptable missed calls based on reason code not V and not 0.",
+      "formula": "sum(case when REASON_CODE <> 'V' and REASON_CODE <> '0' then 1 else 0 end)"
+    },
+    {
+      "id": "performance",
+      "label": "Performance %",
+      "description": "Actual calls divided by effective planned calls after acceptable misses.",
+      "formula": "Actual / (Planned - Acceptable) * 100",
+      "zeroDenominatorBehavior": "return null when Planned - Acceptable is zero"
+    }
+  ],
+  "dataSourceDefinition": {
+    "type": "mssql",
+    "classification": "global-core-report",
+    "legacyReportFile": "rptPerformanceReport.php",
+    "primaryTables": [
+      "ITINERARY",
+      "PSR_ITINERARY",
+      "PSR",
+      "DOCTOR_CLINIC"
+    ],
+    "requiredFields": {
+      "ITINERARY": [
+        "MONTH",
+        "YEAR",
+        "ITINERARY_DATE",
+        "VISIT_DATE",
+        "PSR_ID",
+        "MD_ID",
+        "TERRITORY_ID",
+        "REASON_CODE"
+      ],
+      "PSR_ITINERARY": [
+        "ITINERARY_DATE",
+        "PSR_ID",
+        "TERRITORY_ID",
+        "DISTRICT_ID"
+      ],
+      "PSR": [
+        "PSR_ID",
+        "TERRITORY_ID",
+        "FIRST_NAME",
+        "LAST_NAME"
+      ],
+      "DOCTOR_CLINIC": [
+        "MD_ID",
+        "TERRITORY_ID"
+      ]
+    },
+    "scopeRules": [
+      "client context",
+      "required territory scope",
+      "exclude RRICT territory where present"
+    ],
+    "filtersApplied": [
+      "fiscalYear",
+      "periodCode",
+      "reportType Cycle/YTD"
+    ],
+    "grain": "district + territory",
+    "notes": "Preserves legacy Performance Report formula: Performance = Actual / (Planned - Acceptable) * 100."
   }
 }
