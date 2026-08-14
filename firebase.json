@@ -18,9 +18,9 @@
     "rewrites": [
       {
         "source": "/api/**",
-        "run": {
-          "serviceId": "doxs-api",
-          "region": "asia-southeast1"
+        "function": {
+          "functionId": "api",
+          "region": "us-central1"
         }
       },
       {

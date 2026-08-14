@@ -242,7 +242,11 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
       ) : null}
 
       {!mapboxToken ? (
-        <div className="flex h-[26rem] items-center justify-center rounded-xl bg-slate-50 text-center text-sm text-slate-500">Mapbox access token is not configured.</div>
+        <div className="flex h-[26rem] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 text-center">
+          <MapPin className="mb-3 h-6 w-6 text-slate-400" />
+          <p className="text-sm font-semibold text-slate-700">Call map is disabled for this build.</p>
+          <p className="mt-2 max-w-md text-xs leading-5 text-slate-500">Add <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px]">VITE_MAPBOX_ACCESS_TOKEN</code> during the web build to enable the interactive Mapbox view.</p>
+        </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
           <div className="relative h-[30rem] overflow-hidden rounded-xl border border-slate-200">
