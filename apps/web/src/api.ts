@@ -1,4 +1,4 @@
-import type { DashboardSummary, LoginUser, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
+import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardSummary, LoginUser, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
 
 export type { DashboardSummary, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
 
@@ -84,7 +84,7 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
 export type DashboardActivityOverviewResponse = {
   ok: boolean;
   clientSlug?: string | null;
-  activityOverview?: DashboardSummary['activityOverview'];
+  activityOverview?: DashboardActivityOverview | null;
   message?: string;
 };
 
@@ -100,21 +100,46 @@ export async function getDashboardActivityOverview(): Promise<DashboardActivityO
 }
 
 
-export type DashboardCallMapResponse = {
+export type DashboardCallMapScopeResponse = {
   ok: boolean;
   clientSlug?: string | null;
-  callMap?: DashboardSummary['callMap'];
+  territories: string[];
+  selectedDate?: string;
+  cycle?: DashboardCallMap['cycle'] | null;
   message?: string;
 };
 
-export async function getDashboardCallMap(): Promise<DashboardCallMapResponse> {
+export type DashboardCallMapTerritoryDateResponse = {
+  ok: boolean;
+  clientSlug?: string | null;
+  territoryId: string;
+  date: string;
+  cycle?: DashboardCallMap['cycle'];
+  day?: DashboardCallMapDay;
+  source?: 'firestore-cache' | 'mssql-refresh';
+  cachePath?: string;
+  message?: string;
+};
+
+export async function getDashboardCallMapScope(): Promise<DashboardCallMapScopeResponse> {
   const response = await fetchJson(`${API_BASE}/dashboard/call-map`, {
     method: 'GET',
     credentials: 'include',
   });
 
-  const data = (await response.json()) as DashboardCallMapResponse;
-  if (!response.ok) return { ok: false, message: data.message ?? 'Call map request failed.', callMap: null };
+  const data = (await response.json()) as DashboardCallMapScopeResponse;
+  if (!response.ok) return { ok: false, message: data.message ?? 'Call map scope request failed.', territories: [] };
+  return data;
+}
+
+export async function getDashboardCallMapTerritoryDate(territoryId: string, date: string): Promise<DashboardCallMapTerritoryDateResponse> {
+  const response = await fetchJson(`${API_BASE}/dashboard/call-map/territory/${encodeURIComponent(territoryId)}?date=${encodeURIComponent(date)}`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  const data = (await response.json()) as DashboardCallMapTerritoryDateResponse;
+  if (!response.ok) return { ok: false, territoryId, date, message: data.message ?? 'Call map territory request failed.' };
   return data;
 }
 

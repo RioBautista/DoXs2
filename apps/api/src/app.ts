@@ -5,10 +5,11 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { authenticateUser, loginRequestSchema } from './auth.js';
 import { checkDrupalMySQLConnection, debugDrupalMySQLAuth, debugDrupalMySQLUsersQuery } from './drupal-mysql-auth.js';
 import { clearSessionCookie, createSessionToken, getSessionCookieDiagnostics, getSessionFromRequest, setSessionCookie } from './session.js';
-import { readFreshDashboardCache, resolveDashboardScope, writeDashboardCache } from './dashboard-cache.js';
+import { DASHBOARD_VIEW_KEYS, readFreshDashboardCache, resolveDashboardScope, writeDashboardCache } from './dashboard-cache.js';
 import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
-import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardActivityOverview, getDashboardCallMap, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
+import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardActivityOverview, getDashboardCallMapScopeMetadata, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
 import { listReportDefinitions, runReportDefinition } from './report-engine.js';
+import { getCallMapTerritoryDate } from './call-map-store.js';
 
 
 function clientSlugFromRequest(request: { headers: Record<string, string | string[] | undefined> }) {
@@ -136,7 +137,7 @@ export function buildApp() {
 
     try {
       const cachedSummary = await readFreshDashboardCache(scope);
-      if (cachedSummary) return reply.status(200).send({ ...cachedSummary, activityOverview: null, callMap: null });
+      if (cachedSummary) return reply.status(200).send(cachedSummary);
     } catch (error) {
       request.log.warn({ error, cachePath: scope.cachePath }, 'Failed to read dashboard Firestore cache; falling back to MSSQL refresh.');
     }
@@ -153,7 +154,7 @@ export function buildApp() {
           cachePath: scope.cachePath,
           scopeHash: scope.scopeHash,
           scopeKey: scope.scopeKey,
-          viewKey: 'dashboardSummary',
+          viewKey: DASHBOARD_VIEW_KEYS.summary,
           periodKey: scope.periodKey,
           businessRulesVersion: '1',
           generatedAt: new Date().toISOString(),
@@ -198,9 +199,47 @@ export function buildApp() {
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
     const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
-    const result = await getDashboardCallMap(effectiveClientSlug, territories);
-    return reply.status(result.ok ? 200 : 503).send(result);
+    const metadata = await getDashboardCallMapScopeMetadata(effectiveClientSlug);
+    return reply.status(metadata.ok ? 200 : 503).send({
+      ...metadata,
+      territories,
+      message: metadata.ok ? 'Call map scope loaded. Territory map data is loaded independently.' : metadata.message,
+    });
   });
+
+  app.get('/api/dashboard/call-map/territory/:territoryId', async (request, reply) => {
+    const session = getSessionFromRequest(request);
+    if (!session) {
+      return reply.status(401).send({ ok: false, message: 'Not authenticated.' });
+    }
+
+    const requestClientSlug = clientSlugFromRequest(request);
+    if (!sessionMatchesRequestClient(session.clientSlug, requestClientSlug)) {
+      clearSessionCookie(reply, request);
+      return reply.status(401).send({ ok: false, message: 'Session client does not match this client domain.' });
+    }
+
+    const params = request.params as { territoryId?: string };
+    const query = request.query as { date?: string };
+    const territoryId = String(params.territoryId ?? '').trim();
+    const date = String(query.date ?? '').trim();
+    if (!territoryId || !date) return reply.status(400).send({ ok: false, message: 'territoryId and date are required.' });
+
+    const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
+    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    if (territories.length > 0 && !territories.includes(territoryId)) {
+      return reply.status(403).send({ ok: false, message: 'Territory is outside this user scope.' });
+    }
+
+    try {
+      const doc = await getCallMapTerritoryDate(effectiveClientSlug ?? 'default', territoryId, date);
+      return reply.status(200).send(doc);
+    } catch (error) {
+      request.log.warn({ error, territoryId, date }, 'Failed to load call map territory/date document.');
+      return reply.status(503).send({ ok: false, territoryId, date, message: error instanceof Error ? error.message : 'Call map territory/date unavailable.' });
+    }
+  });
+
 
 
   app.post('/api/debug/cache-freshness/run', async (request, reply) => {

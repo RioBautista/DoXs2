@@ -637,6 +637,27 @@ async function getActivityOverview(pool: sql.ConnectionPool, territories: string
 
 
 
+
+export async function getDashboardCallMapScopeMetadata(clientSlug?: string | null) {
+  const config = getClientMSSQLConfig(clientSlug);
+  if (!config) {
+    return { ok: false, clientSlug, cycle: null, selectedDate: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }), message: 'MSSQL dashboard data source is not configured for this client yet.' };
+  }
+
+  let pool: sql.ConnectionPool | null = null;
+  try {
+    pool = await connectClientMSSQL(config);
+    const cycle = await getCurrentCyclePeriod(pool);
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    const selectedDate = today >= cycle.startDate && today <= cycle.endDate ? today : cycle.startDate;
+    return { ok: true, clientSlug: config.clientSlug, cycle, selectedDate };
+  } catch (error) {
+    return { ok: false, clientSlug: config.clientSlug, cycle: null, selectedDate: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }), message: error instanceof Error ? error.message : 'Call map scope metadata unavailable.' };
+  } finally {
+    if (pool) await pool.close();
+  }
+}
+
 export async function getDashboardActivityOverview(clientSlug?: string | null, territories: string[] = []) {
   const config = getClientMSSQLConfig(clientSlug);
   if (!config) {
@@ -657,7 +678,6 @@ export async function getDashboardActivityOverview(clientSlug?: string | null, t
     return {
       ok: false,
       clientSlug: config.clientSlug,
-      activityOverview: null,
       message: error instanceof Error ? `MSSQL activity overview temporarily unavailable: ${error.message}` : 'MSSQL activity overview temporarily unavailable.',
     };
   } finally {
@@ -708,8 +728,6 @@ export async function getDashboardSummary(clientSlug?: string | null, territorie
         doctorsPlanned: null,
         doctorsReachedRate: null,
       },
-      activityOverview: null,
-      callMap: null,
       message: 'MSSQL dashboard data source is not configured for this client yet.',
     };
   }
@@ -743,8 +761,6 @@ export async function getDashboardSummary(clientSlug?: string | null, territorie
         doctorsPlanned,
         doctorsReachedRate,
       },
-      activityOverview: null,
-      callMap: null,
       message: territories.length > 0 ? 'Live read-only MSSQL dashboard metrics loaded with territory scope.' : 'Live read-only MSSQL dashboard metrics loaded.',
     };
   } catch (error) {
@@ -760,8 +776,6 @@ export async function getDashboardSummary(clientSlug?: string | null, territorie
         doctorsPlanned: null,
         doctorsReachedRate: null,
       },
-      activityOverview: null,
-      callMap: null,
       message: error instanceof Error ? `MSSQL metrics temporarily unavailable: ${error.message}` : 'MSSQL metrics temporarily unavailable.',
     };
   } finally {

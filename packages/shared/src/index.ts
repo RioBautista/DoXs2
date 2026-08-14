@@ -119,8 +119,6 @@ export type DashboardSummary = {
   clientSlug?: string | null;
   dataSource: DashboardDataSource;
   metrics: DashboardMetrics;
-  activityOverview?: DashboardActivityOverview | null;
-  callMap?: DashboardCallMap | null;
   message?: string;
   cache?: DashboardCacheMetadata;
 };
@@ -144,6 +142,29 @@ export type DashboardCacheDocument = DashboardSummary & {
   staleReason?: string | null;
   staleDetectedAt?: string | null;
   affectedTerritories?: string[];
+};
+
+
+export type DashboardCallMapCacheDocument = {
+  ok: boolean;
+  clientSlug?: string | null;
+  callMap: DashboardCallMap | null;
+  message?: string;
+  viewKey: string;
+  scopeHash: string;
+  scopeKey: string;
+  scopeDefinition: {
+    clientId: string;
+    userId?: string;
+    territories: string[];
+    roles: string[];
+  };
+  periodKey: string;
+  businessRulesVersion: string;
+  generatedAt: string;
+  expiresAt: string;
+  sourceWatermark?: string | null;
+  cache?: DashboardCacheMetadata;
 };
 
 export type ReportFilterType = 'date' | 'text' | 'number' | 'boolean' | 'select';

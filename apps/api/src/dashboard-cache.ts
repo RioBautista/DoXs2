@@ -3,7 +3,7 @@ import type { DashboardCacheDocument, DashboardSummary } from '@doxs/shared';
 import { getAdminFirestore } from './firestore-admin.js';
 import type { SessionPayload } from './session.js';
 
-const VIEW_KEY = 'dashboardSummary';
+const DASHBOARD_SUMMARY_VIEW_KEY = 'dashboardSummary';
 const BUSINESS_RULES_VERSION = '1';
 const CACHE_TTL_MS = Number(process.env.DASHBOARD_CACHE_TTL_MS ?? 5 * 60 * 1000);
 
@@ -40,10 +40,18 @@ export function resolveDashboardScope(session: SessionPayload, clientSlug?: stri
   const scopeBasis = { clientId, territories, roles, periodKey, businessRulesVersion: BUSINESS_RULES_VERSION };
   const scopeHash = stableHash(scopeBasis);
   const scopeKey = `territory:${scopeHash}`;
-  const cachePath = `iDoXs_Clients/${clientId}/scopeCaches/${scopeHash}/viewCaches/${VIEW_KEY}`;
+  const cachePath = `iDoXs_Clients/${clientId}/scopeCaches/${scopeHash}/viewCaches/${DASHBOARD_SUMMARY_VIEW_KEY}`;
 
   return { clientId, userId, territories, roles, periodKey, scopeHash, scopeKey, cachePath };
 }
+
+export function viewCachePath(scope: DashboardScope, viewKey: string) {
+  return `iDoXs_Clients/${scope.clientId}/scopeCaches/${scope.scopeHash}/viewCaches/${viewKey}`;
+}
+
+export const DASHBOARD_VIEW_KEYS = {
+  summary: DASHBOARD_SUMMARY_VIEW_KEY,
+} as const;
 
 
 export async function readFreshDashboardCache(scope: DashboardScope): Promise<DashboardCacheDocument | null> {
@@ -60,14 +68,16 @@ export async function readFreshDashboardCache(scope: DashboardScope): Promise<Da
   if (data.stale || data.cache?.stale) return null;
   if (!data.expiresAt || Date.parse(data.expiresAt) <= Date.now()) return null;
 
+  const { callMap: _legacyCallMap, activityOverview: _legacyActivityOverview, ...summaryOnlyData } = data as DashboardCacheDocument & { callMap?: unknown; activityOverview?: unknown };
+
   return {
-    ...data,
+    ...summaryOnlyData,
     cache: {
       ...(data.cache ?? {
         cachePath: scope.cachePath,
         scopeHash: scope.scopeHash,
         scopeKey: scope.scopeKey,
-        viewKey: VIEW_KEY,
+        viewKey: DASHBOARD_SUMMARY_VIEW_KEY,
         periodKey: scope.periodKey,
         businessRulesVersion: BUSINESS_RULES_VERSION,
         generatedAt: data.generatedAt,
@@ -80,16 +90,13 @@ export async function readFreshDashboardCache(scope: DashboardScope): Promise<Da
 }
 
 export async function writeDashboardCache(summary: DashboardSummary, scope: DashboardScope, options: { sourceWatermark?: string | null } = {}): Promise<DashboardCacheDocument> {
-  // Keep the shared dashboard cache lightweight and Firestore-safe. The map payload is large and
-  // currently contains a nested shape Firestore rejects, so cache core dashboard data first.
-  const { callMap: _callMap, ...cacheableSummary } = summary;
-  const generatedAt = new Date().toISOString();
+    const generatedAt = new Date().toISOString();
   const expiresAt = new Date(Date.now() + CACHE_TTL_MS).toISOString();
   const doc: DashboardCacheDocument = {
-    ...cacheableSummary,
+    ...summary,
     ok: summary.ok,
     clientSlug: scope.clientId,
-    viewKey: VIEW_KEY,
+    viewKey: DASHBOARD_SUMMARY_VIEW_KEY,
     scopeHash: scope.scopeHash,
     scopeKey: scope.scopeKey,
     scopeDefinition: {
@@ -110,7 +117,7 @@ export async function writeDashboardCache(summary: DashboardSummary, scope: Dash
       cachePath: scope.cachePath,
       scopeHash: scope.scopeHash,
       scopeKey: scope.scopeKey,
-      viewKey: VIEW_KEY,
+      viewKey: DASHBOARD_SUMMARY_VIEW_KEY,
       periodKey: scope.periodKey,
       businessRulesVersion: BUSINESS_RULES_VERSION,
       generatedAt,
@@ -123,6 +130,6 @@ export async function writeDashboardCache(summary: DashboardSummary, scope: Dash
   };
 
   const sanitizedDoc = toFirestoreJson(doc);
-  await getAdminFirestore().doc(scope.cachePath).set(sanitizedDoc, { merge: true });
+  await getAdminFirestore().doc(scope.cachePath).set(sanitizedDoc);
   return sanitizedDoc;
 }

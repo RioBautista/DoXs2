@@ -15,7 +15,8 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { getDashboardActivityOverview, getDashboardCallMap, getDashboardSummary, type DashboardSummary } from '../api';
+import { getDashboardActivityOverview, getDashboardCallMapScope, getDashboardCallMapTerritoryDate, getDashboardSummary, type DashboardSummary } from '../api';
+import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay } from '@doxs/shared';
 import { ensureFirebaseSession, getClientFirestore } from '../lib/firebase';
 import type { AuthSession } from '../lib/auth';
 
@@ -80,23 +81,42 @@ function formatMapTitleDate(date: string) {
   return new Intl.DateTimeFormat('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
-function CallMap({ summary, status }: { summary: DashboardSummary | null; status: 'loading' | 'loaded' | 'error' }) {
+function emptyCallMapDay(date: string): DashboardCallMapDay {
+  return { date, territories: [], calls: [], nodes: [], sequences: [] };
+}
+
+function mergeCallMapDay(current: DashboardCallMap | null, cycle: DashboardCallMap['cycle'], selectedDate: string, day: DashboardCallMapDay): DashboardCallMap {
+  const existingDay = current?.days?.[day.date] ?? emptyCallMapDay(day.date);
+  const territoryIds = new Set(day.territories.map((territory) => territory.territoryId));
+  const mergedDay: DashboardCallMapDay = {
+    date: day.date,
+    territories: [...existingDay.territories.filter((territory) => !territoryIds.has(territory.territoryId)), ...day.territories]
+      .sort((a, b) => a.territoryId.localeCompare(b.territoryId)),
+    calls: [...existingDay.calls.filter((call) => !territoryIds.has(call.territoryId)), ...day.calls]
+      .sort((a, b) => a.territoryId.localeCompare(b.territoryId) || a.sequence - b.sequence),
+    nodes: [...existingDay.nodes.filter((node) => !territoryIds.has(node.territoryId)), ...day.nodes]
+      .sort((a, b) => a.territoryId.localeCompare(b.territoryId) || a.sequenceStart - b.sequenceStart),
+    sequences: [...existingDay.sequences.filter((sequence) => !territoryIds.has(sequence.territoryId)), ...day.sequences]
+      .sort((a, b) => a.territoryId.localeCompare(b.territoryId)),
+  };
+  const days = { ...(current?.days ?? {}), [day.date]: mergedDay };
+  return {
+    selectedDate,
+    cycle,
+    days,
+    points: days[selectedDate]?.calls ?? [],
+  };
+}
+
+function CallMap({ callMap, status, progress, selectedDate, onDateChange }: { callMap: DashboardCallMap | null; status: 'loading' | 'loaded' | 'error'; progress?: { loaded: number; total: number }; selectedDate: string; onDateChange: (date: string) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   const selectedNodeRef = useRef<Record<string, [number, number]>>({});
-  const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toLocaleDateString('en-CA'));
   const [selectedTerritory, setSelectedTerritory] = useState<string | null>(null);
   const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined;
   const [mapError, setMapError] = useState<string | null>(null);
-  const rawMapData = summary?.callMap ?? null;
-  const mapData = rawMapData?.cycle && rawMapData?.days ? rawMapData : null;
-  const availableDates = useMemo(() => Object.keys(mapData?.days ?? {}).sort(), [mapData?.days]);
-
-  useEffect(() => {
-    if (mapData?.selectedDate) setSelectedDate(mapData.selectedDate);
-  }, [mapData?.selectedDate]);
-
+  const mapData = callMap?.cycle && callMap?.days ? callMap : null;
   const selectedDay = mapData?.days?.[selectedDate] ?? null;
   const nodes = useMemo(() => selectedDay?.nodes ?? [], [selectedDay?.nodes]);
   const calls = useMemo(() => selectedDay?.calls ?? [], [selectedDay?.calls]);
@@ -237,7 +257,7 @@ function CallMap({ summary, status }: { summary: DashboardSummary | null; status
             min={mapData?.cycle?.startDate}
             max={mapData?.cycle?.endDate}
             value={selectedDate}
-            onChange={(event) => setSelectedDate(event.target.value)}
+            onChange={(event) => onDateChange(event.target.value)}
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700"
           />
           <MapPin className="h-5 w-5 text-slate-400" />
@@ -273,8 +293,8 @@ function CallMap({ summary, status }: { summary: DashboardSummary | null; status
             <div ref={containerRef} className="h-full w-full" />
             {mapError ? (
               <div className="absolute inset-0 flex items-center justify-center bg-red-50/95 p-6 text-center text-sm text-red-700">Map could not initialize: {mapError}</div>
-            ) : status === 'loading' ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90"><LoadingIndicator label="Loading call map…" /></div>
+            ) : status === 'loading' && !calls.length ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90"><LoadingIndicator label={progress?.total ? `Loading territories ${progress.loaded}/${progress.total}…` : 'Loading call map…'} /></div>
             ) : status === 'error' ? (
               <div className="absolute inset-0 flex items-center justify-center bg-amber-50/95 p-6 text-center text-sm text-amber-700">Call map is still unavailable. Metrics remain visible while the map API recovers.</div>
             ) : !calls.length ? (
@@ -292,7 +312,7 @@ function CallMap({ summary, status }: { summary: DashboardSummary | null; status
               </div>
             </div>
             <div className="space-y-2">
-              {status === 'loading' ? <div className="rounded-lg bg-white p-4"><LoadingIndicator label="Loading call list…" /></div> : panelCalls.length ? panelCalls.map((call) => (
+              {status === 'loading' && !panelCalls.length ? <div className="rounded-lg bg-white p-4"><LoadingIndicator label={progress?.total ? `Loading call list ${progress.loaded}/${progress.total}…` : 'Loading call list…'} /></div> : panelCalls.length ? panelCalls.map((call) => (
                 <button key={call.id} type="button" onClick={() => focusNode(call.nodeId)} className="w-full rounded-lg bg-white p-3 text-left text-xs shadow-sm transition hover:ring-2 hover:ring-slate-200">
                   <div className="flex justify-between gap-2 font-semibold text-slate-900">
                     <span>{call.timeLabel}</span>
@@ -306,13 +326,13 @@ function CallMap({ summary, status }: { summary: DashboardSummary | null; status
             </div>
           </aside>
         </div>
-      <p className="mt-3 text-xs text-slate-500">{calls.length} calls · {nodes.length} map nodes. Data is served by the DOXS API with user territory scope applied.</p>
+      <p className="mt-3 text-xs text-slate-500">{calls.length} calls · {nodes.length} map nodes. {status === 'loading' && progress?.total ? `Loaded ${progress.loaded}/${progress.total} territories. ` : ''}Data is served by territory/date map documents with user territory scope applied.</p>
     </div>
   );
 }
 
-function ActivityOverviewChart({ summary, status }: { summary: DashboardSummary | null; status: 'loading' | 'loaded' | 'error' }) {
-  const points = summary?.activityOverview?.points ?? [];
+function ActivityOverviewChart({ activityOverview, status }: { activityOverview: DashboardActivityOverview | null; status: 'loading' | 'loaded' | 'error' }) {
+  const points = activityOverview?.points ?? [];
   const option = {
     color: ['#2563eb', '#10b981'],
     tooltip: { trigger: 'axis' },
@@ -320,7 +340,7 @@ function ActivityOverviewChart({ summary, status }: { summary: DashboardSummary 
     grid: { top: 42, left: 38, right: 16, bottom: 50 },
     xAxis: {
       type: 'category',
-      name: summary?.activityOverview?.xAxisTitle ?? '',
+      name: activityOverview?.xAxisTitle ?? '',
       nameLocation: 'middle',
       nameGap: 28,
       nameTextStyle: { color: '#64748b', fontWeight: 600 },
@@ -374,6 +394,12 @@ export function Dashboard({ session }: DashboardProps) {
   const [subscriptionStatus, setSubscriptionStatus] = useState<'pending' | 'subscribed' | 'api-only'>('pending');
   const [activityStatus, setActivityStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [callMapStatus, setCallMapStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [activityOverview, setActivityOverview] = useState<DashboardActivityOverview | null>(null);
+  const [callMap, setCallMap] = useState<DashboardCallMap | null>(null);
+  const [callMapCycle, setCallMapCycle] = useState<DashboardCallMap['cycle'] | null>(null);
+  const [callMapTerritories, setCallMapTerritories] = useState<string[]>([]);
+  const [selectedCallMapDate, setSelectedCallMapDate] = useState<string>(() => new Date().toLocaleDateString('en-CA'));
+  const [callMapLoadedCount, setCallMapLoadedCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -393,7 +419,7 @@ export function Dashboard({ session }: DashboardProps) {
         void getDashboardActivityOverview()
           .then((activityResult) => {
             if (!cancelled && activityResult.ok && activityResult.activityOverview) {
-              setSummary((current) => current ? { ...current, activityOverview: activityResult.activityOverview ?? current.activityOverview ?? null } : result);
+              setActivityOverview(activityResult.activityOverview ?? null);
               setActivityStatus('loaded');
             } else if (!cancelled) {
               setActivityStatus(activityResult.ok ? 'loaded' : 'error');
@@ -403,13 +429,14 @@ export function Dashboard({ session }: DashboardProps) {
             if (!cancelled) setActivityStatus('error');
           });
 
-        void getDashboardCallMap()
-          .then((mapResult) => {
-            if (!cancelled && mapResult.ok && mapResult.callMap) {
-              setSummary((current) => current ? { ...current, callMap: mapResult.callMap ?? current.callMap ?? null } : result);
-              setCallMapStatus('loaded');
+        void getDashboardCallMapScope()
+          .then((scopeResult) => {
+            if (!cancelled && scopeResult.ok && scopeResult.cycle && scopeResult.selectedDate) {
+              setCallMapCycle(scopeResult.cycle);
+              setSelectedCallMapDate(scopeResult.selectedDate);
+              setCallMapTerritories(scopeResult.territories ?? []);
             } else if (!cancelled) {
-              setCallMapStatus(mapResult.ok ? 'loaded' : 'error');
+              setCallMapStatus(scopeResult.ok ? 'loaded' : 'error');
             }
           })
           .catch(() => {
@@ -430,11 +457,7 @@ export function Dashboard({ session }: DashboardProps) {
             (snapshot) => {
               if (!snapshot.exists()) return;
               const cachedSummary = snapshot.data() as DashboardSummary;
-              setSummary((current) => ({
-                ...cachedSummary,
-                activityOverview: current?.activityOverview ?? result.activityOverview ?? null,
-                callMap: current?.callMap ?? result.callMap ?? null,
-              }));
+              setSummary(cachedSummary);
               setSubscriptionStatus('subscribed');
             },
             () => {
@@ -449,6 +472,11 @@ export function Dashboard({ session }: DashboardProps) {
           setSummary(null);
           setSubscriptionStatus('api-only');
           setActivityStatus('error');
+          setActivityOverview(null);
+          setCallMap(null);
+          setCallMapCycle(null);
+          setCallMapTerritories([]);
+          setCallMapLoadedCount(0);
           setCallMapStatus('error');
         }
       } finally {
@@ -462,6 +490,34 @@ export function Dashboard({ session }: DashboardProps) {
       unsubscribe?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!callMapCycle || !selectedCallMapDate) return;
+    let cancelled = false;
+    const territories = callMapTerritories;
+    setCallMapLoadedCount(0);
+    setCallMap({ selectedDate: selectedCallMapDate, cycle: callMapCycle, days: { [selectedCallMapDate]: emptyCallMapDay(selectedCallMapDate) }, points: [] });
+    if (!territories.length) {
+      setCallMapStatus('loaded');
+      return () => { cancelled = true; };
+    }
+
+    setCallMapStatus('loading');
+    void Promise.allSettled(territories.map(async (territoryId) => {
+      const result = await getDashboardCallMapTerritoryDate(territoryId, selectedCallMapDate);
+      if (cancelled) return;
+      if (result.ok && result.day) {
+        setCallMap((current) => mergeCallMapDay(current, result.cycle ?? callMapCycle, selectedCallMapDate, result.day!));
+      }
+      setCallMapLoadedCount((count) => count + 1);
+    })).then((results) => {
+      if (cancelled) return;
+      setCallMapStatus(results.some((result) => result.status === 'fulfilled') ? 'loaded' : 'error');
+    });
+
+    return () => { cancelled = true; };
+  }, [callMapCycle, callMapTerritories, selectedCallMapDate]);
+
 
   const mssqlReady = summary?.dataSource?.status === 'configured';
 
@@ -496,15 +552,15 @@ export function Dashboard({ session }: DashboardProps) {
               <div>
                 <p className="text-sm font-semibold text-slate-950">Activity overview</p>
                 <p className="mt-1 text-sm text-slate-500">
-                  Target and actual calls by day for the current cycle{summary?.activityOverview ? ` (${summary.activityOverview.startDate} to ${summary.activityOverview.endDate})` : ''}.
+                  Target and actual calls by day for the current cycle{activityOverview ? ` (${activityOverview.startDate} to ${activityOverview.endDate})` : ''}.
                 </p>
               </div>
               <BarChart3 className="h-5 w-5 text-slate-400" />
             </div>
-            <ActivityOverviewChart summary={summary} status={activityStatus} />
+            <ActivityOverviewChart activityOverview={activityOverview} status={activityStatus} />
           </div>
 
-          <CallMap summary={summary} status={callMapStatus} />
+          <CallMap callMap={callMap} status={callMapStatus} progress={{ loaded: callMapLoadedCount, total: callMapTerritories.length }} selectedDate={selectedCallMapDate} onDateChange={setSelectedCallMapDate} />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
