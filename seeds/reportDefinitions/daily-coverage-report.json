@@ -1,0 +1,28 @@
+{
+  "title": "Daily Coverage Report",
+  "description": "Global/core iDoXs report showing as-planned and unplanned daily visit coverage, modeled after legacy rptDailyCoverageReport.php.",
+  "category": "Global Reports / Field Execution",
+  "status": "enabled",
+  "clientSlugs": [],
+  "allowedRoles": ["DocCS Admin", "Admin", "District Manager", "Manager", "Medical Representative"],
+  "outputs": ["html", "csv"],
+  "filters": [
+    { "id": "fiscalYear", "label": "Fiscal year", "type": "number", "required": true },
+    { "id": "periodCode", "label": "Period code", "type": "number", "required": true }
+  ],
+  "columns": [
+    { "id": "visit_date", "label": "Visit Date", "type": "date" },
+    { "id": "district_id", "label": "District" },
+    { "id": "territory_id", "label": "Territory ID" },
+    { "id": "territory_name", "label": "Territory" },
+    { "id": "ap", "label": "AP", "type": "number", "align": "right" },
+    { "id": "up", "label": "UP", "type": "number", "align": "right" },
+    { "id": "all_calls", "label": "All", "type": "number", "align": "right" }
+  ],
+  "source": {
+    "type": "mssql",
+    "maxRows": 5000,
+    "territoryScope": { "mode": "required" },
+    "sql": "select top 5000 convert(date, i.VISIT_DATE) as visit_date, pi.DISTRICT_ID as district_id, ltrim(rtrim(cast(pi.TERRITORY_ID as varchar(128)))) as territory_id, nullif(ltrim(rtrim(concat('(', pi.TERRITORY_ID, ')', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') as territory_name, sum(case when floor(convert(float, i.ITINERARY_DATE)) = floor(convert(float, i.VISIT_DATE)) then 1 else 0 end) as ap, sum(case when floor(convert(float, i.ITINERARY_DATE)) <> floor(convert(float, i.VISIT_DATE)) then 1 else 0 end) as up, count_big(*) as all_calls from [dbo].[ITINERARY] i join [dbo].[PSR_ITINERARY] pi on i.ITINERARY_DATE = pi.ITINERARY_DATE and i.PSR_ID = pi.PSR_ID join [dbo].[PSR] p on i.PSR_ID = p.PSR_ID join [dbo].[PERIOD_DEFINITION] pd on pi.[MONTH] = pd.PERIOD_CODE and pi.[YEAR] = pd.FISCAL_YEAR where pi.[MONTH] = @periodCode and pi.[YEAR] = @fiscalYear and i.VISIT_DATE is not null and i.VISIT_DATE between pd.START_DATE and dateadd(day, 1, pd.END_DATE) and p.PSR_ID not like '%rr143%' and p.PSR_ID not like '%rr123%' and i.TERRITORY_ID not in ('RRICT') and p.TERRITORY_ID not in ('RRICT') {{territoryPredicate:i.TERRITORY_ID}} group by convert(date, i.VISIT_DATE), pi.DISTRICT_ID, pi.TERRITORY_ID, nullif(ltrim(rtrim(concat('(', pi.TERRITORY_ID, ')', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') order by visit_date, district_id, territory_id"
+  }
+}

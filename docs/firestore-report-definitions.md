@@ -46,3 +46,33 @@ Reusable reports live in Firestore collection `reportDefinitions` by default. Th
 
 - `GET /api/reports` lists definitions available to the current session.
 - `GET /api/reports/:reportId/run?startDate=2026-08-01&endDate=2026-08-31` executes one report.
+
+
+## Seed definitions
+
+Initial global/core report definitions are stored under:
+
+```text
+seeds/reportDefinitions/
+```
+
+Current Phase 2 definitions:
+
+- `call-reach-by-frequency.json`
+- `daily-coverage-report.json`
+- `performance-report.json`
+- `monthly-calls-per-doctor.json` remains as an example/deferred report
+
+Dry-run the seed loader:
+
+```bash
+npm run seed:reports:dry-run
+```
+
+Write definitions to Firestore after approval and with Firebase Admin credentials available:
+
+```bash
+REPORTS_COLLECTION=reportDefinitions npm run seed:reports
+```
+
+The first three definitions are global/core reports, so `clientSlugs` is intentionally empty. Client-specific reports, such as Oxford Sales Order / ETR, should use explicit `clientSlugs` when added later.

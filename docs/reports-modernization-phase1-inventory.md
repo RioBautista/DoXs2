@@ -407,3 +407,14 @@ Proceed with this first batch:
 3. Territory / Doctor Coverage Summary
 
 Hold the broader performance/KPI report family until the first pilot validates report definitions, territory scope, date filtering, and generic UI behavior.
+
+
+## Phase 2 status
+
+Phase 2 creates Firestore-ready seed definitions for the validated global/core pilot reports:
+
+1. `call-reach-by-frequency`
+2. `daily-coverage-report`
+3. `performance-report`
+
+These are repo-level seed files first. Live Firestore writes should be done only after explicit approval and with the correct Firebase Admin credentials/context.

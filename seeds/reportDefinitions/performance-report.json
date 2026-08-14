@@ -1,0 +1,40 @@
+{
+  "title": "Performance Report",
+  "description": "Global/core iDoXs report showing planned, actual, missed, acceptable missed, and performance percentage, modeled after legacy rptPerformanceReport.php.",
+  "category": "Global Reports / Field Performance",
+  "status": "enabled",
+  "clientSlugs": [],
+  "allowedRoles": ["DocCS Admin", "Admin", "District Manager", "Manager", "Medical Representative"],
+  "outputs": ["html", "csv"],
+  "filters": [
+    { "id": "fiscalYear", "label": "Fiscal year", "type": "number", "required": true },
+    { "id": "periodCode", "label": "Period code", "type": "number", "required": true },
+    {
+      "id": "reportType",
+      "label": "Report type",
+      "type": "select",
+      "required": true,
+      "defaultValue": "YTD",
+      "options": [
+        { "label": "Cycle", "value": "Cycle" },
+        { "label": "Year to date", "value": "YTD" }
+      ]
+    }
+  ],
+  "columns": [
+    { "id": "district_id", "label": "District" },
+    { "id": "territory_id", "label": "Territory ID" },
+    { "id": "territory_name", "label": "Territory" },
+    { "id": "planned", "label": "Planned", "type": "number", "align": "right" },
+    { "id": "actual", "label": "Actual", "type": "number", "align": "right" },
+    { "id": "missed", "label": "Missed", "type": "number", "align": "right" },
+    { "id": "acceptable", "label": "Acceptable", "type": "number", "align": "right" },
+    { "id": "performance", "label": "Performance", "type": "number", "align": "right", "format": "percent" }
+  ],
+  "source": {
+    "type": "mssql",
+    "maxRows": 5000,
+    "territoryScope": { "mode": "required" },
+    "sql": "select top 5000 pi.DISTRICT_ID as district_id, ltrim(rtrim(cast(pi.TERRITORY_ID as varchar(128)))) as territory_id, nullif(ltrim(rtrim(concat('(', pi.TERRITORY_ID, ') ', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') as territory_name, count_big(*) as planned, sum(case when i.VISIT_DATE is not null then 1 else 0 end) as actual, sum(case when i.VISIT_DATE is null then 1 else 0 end) as missed, sum(case when i.REASON_CODE <> 'V' and i.REASON_CODE <> '0' then 1 else 0 end) as acceptable, cast(case when (count_big(*) - sum(case when i.REASON_CODE <> 'V' and i.REASON_CODE <> '0' then 1 else 0 end)) = 0 then null else (sum(case when i.VISIT_DATE is not null then 1 else 0 end) * 100.0 / (count_big(*) - sum(case when i.REASON_CODE <> 'V' and i.REASON_CODE <> '0' then 1 else 0 end))) end as decimal(18,2)) as performance from [dbo].[ITINERARY] i join [dbo].[PSR_ITINERARY] pi on i.ITINERARY_DATE = pi.ITINERARY_DATE and i.PSR_ID = pi.PSR_ID join [dbo].[PSR] p on i.PSR_ID = p.PSR_ID left join [dbo].[DOCTOR_CLINIC] dc on i.MD_ID = dc.MD_ID and i.TERRITORY_ID = dc.TERRITORY_ID where i.[YEAR] = @fiscalYear and ((@reportType = 'Cycle' and i.[MONTH] = @periodCode) or (@reportType <> 'Cycle' and i.[MONTH] <= @periodCode)) and p.TERRITORY_ID not in ('RRICT') {{territoryPredicate:i.TERRITORY_ID}} group by pi.DISTRICT_ID, pi.TERRITORY_ID, nullif(ltrim(rtrim(concat('(', pi.TERRITORY_ID, ') ', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') order by district_id, territory_id"
+  }
+}
