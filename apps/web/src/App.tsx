@@ -1,4 +1,4 @@
-import { FormEvent, lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { Component, type ErrorInfo, FormEvent, lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
 import { getCurrentSession, login, logout } from './api';
 import { Button } from './components/ui/Button';
@@ -8,6 +8,35 @@ import { getClientContext, getDisplayClientName } from './lib/client';
 
 const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })));
 const ReportsPage = lazy(() => import('./components/ReportsPage').then((module) => ({ default: module.ReportsPage })));
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Dashboard render failed', error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-800 shadow-sm">
+          <p className="font-semibold">Dashboard could not render after login.</p>
+          <p className="mt-2">The session is active, but a browser-side module crashed. Please refresh once; if it repeats, this panel will keep the page visible while we inspect logs.</p>
+          <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-white/70 p-3 text-xs text-red-700">{this.state.error.message}</pre>
+          <button type="button" className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white" onClick={() => window.location.reload()}>
+            Reload page
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 
 function normalizePath(pathname: string) {
@@ -63,9 +92,11 @@ function AppShell({ session, activePath, onLogout }: { session: AuthSession; act
           </button>
         </nav>
 
-        <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">Loading…</div>}>
-          {isReports ? <ReportsPage clientName={activeClientName} /> : <Dashboard session={session} />}
-        </Suspense>
+        <AppErrorBoundary>
+          <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">Loading…</div>}>
+            {isReports ? <ReportsPage clientName={activeClientName} /> : <Dashboard session={session} />}
+          </Suspense>
+        </AppErrorBoundary>
       </section>
     </main>
   );

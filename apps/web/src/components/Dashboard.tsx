@@ -75,6 +75,7 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toLocaleDateString('en-CA'));
   const [selectedTerritory, setSelectedTerritory] = useState<string | null>(null);
   const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined;
+  const [mapError, setMapError] = useState<string | null>(null);
   const mapData = summary?.callMap ?? null;
   const availableDates = useMemo(() => Object.keys(mapData?.days ?? {}).sort(), [mapData?.days]);
 
@@ -84,8 +85,8 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
 
   const selectedDay = mapData?.days?.[selectedDate] ?? null;
   const nodes = useMemo(() => selectedDay?.nodes ?? [], [selectedDay?.nodes]);
-  const calls = selectedDay?.calls ?? [];
-  const territories = selectedDay?.territories ?? [];
+  const calls = useMemo(() => selectedDay?.calls ?? [], [selectedDay?.calls]);
+  const territories = useMemo(() => selectedDay?.territories ?? [], [selectedDay?.territories]);
   const selectedTerritoryDetail = territories.find((territory) => territory.territoryId === selectedTerritory) ?? territories[0] ?? null;
   const panelTerritoryId = selectedTerritory ?? selectedTerritoryDetail?.territoryId ?? null;
   const panelCalls = panelTerritoryId ? calls.filter((call) => call.territoryId === panelTerritoryId) : [];
@@ -106,8 +107,9 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    if (mapboxToken) mapboxgl.accessToken = mapboxToken;
-    mapRef.current = new mapboxgl.Map({
+    try {
+      if (mapboxToken) mapboxgl.accessToken = mapboxToken;
+      mapRef.current = new mapboxgl.Map({
       container: containerRef.current,
       style: mapboxToken ? 'mapbox://styles/mapbox/streets-v11' : {
         version: 8,
@@ -125,8 +127,12 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
       zoom: 11,
       attributionControl: false,
     });
-    mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
-    mapRef.current.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
+      mapRef.current.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
+      mapRef.current.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
+      setMapError(null);
+    } catch (error) {
+      setMapError(error instanceof Error ? error.message : 'Map could not initialize in this browser.');
+    }
 
     return () => {
       markersRef.current.forEach((marker) => marker.remove());
@@ -149,7 +155,7 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
       if (map.getSource(sourceId)) map.removeSource(sourceId);
     }
 
-    const sequenceFeatures = selectedDay.sequences.map((sequence) => ({
+    const sequenceFeatures = (selectedDay.sequences ?? []).map((sequence) => ({
       type: 'Feature' as const,
       properties: { territoryId: sequence.territoryId, color: sequence.color },
       geometry: { type: 'LineString' as const, coordinates: sequence.coordinates },
@@ -251,7 +257,9 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
           ) : null}
           <div className="relative h-[30rem] overflow-hidden rounded-xl border border-slate-200">
             <div ref={containerRef} className="h-full w-full" />
-            {!nodes.length ? (
+            {mapError ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-red-50/95 p-6 text-center text-sm text-red-700">Map could not initialize: {mapError}</div>
+            ) : !nodes.length ? (
               <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90 text-center text-sm text-slate-500">No geotagged calls found for this date.</div>
             ) : null}
           </div>
@@ -362,7 +370,11 @@ export function Dashboard({ session }: DashboardProps) {
             doc(firestore, cachePath),
             (snapshot) => {
               if (!snapshot.exists()) return;
-              setSummary(snapshot.data() as DashboardSummary);
+              const cachedSummary = snapshot.data() as DashboardSummary;
+              setSummary((current) => ({
+                ...cachedSummary,
+                callMap: cachedSummary.callMap ?? current?.callMap ?? result.callMap ?? null,
+              }));
               setSubscriptionStatus('subscribed');
             },
             () => {
@@ -389,7 +401,7 @@ export function Dashboard({ session }: DashboardProps) {
     };
   }, []);
 
-  const mssqlReady = summary?.dataSource.status === 'configured';
+  const mssqlReady = summary?.dataSource?.status === 'configured';
 
   return (
     <>
@@ -404,13 +416,13 @@ export function Dashboard({ session }: DashboardProps) {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Target Calls" value={formatMetric(summary?.metrics.targetCalls)} helper="Planned itinerary rows, month-to-date" icon={FileText} />
-          <StatCard label="Actual Calls" value={formatMetric(summary?.metrics.actualCalls)} helper="Visited itinerary rows, month-to-date" icon={Users} />
-          <StatCard label="Call Rate" value={formatPercent(summary?.metrics.callRate)} helper="Actual calls ÷ target calls" icon={TrendingUp} />
+          <StatCard label="Target Calls" value={formatMetric(summary?.metrics?.targetCalls)} helper="Planned itinerary rows, month-to-date" icon={FileText} />
+          <StatCard label="Actual Calls" value={formatMetric(summary?.metrics?.actualCalls)} helper="Visited itinerary rows, month-to-date" icon={Users} />
+          <StatCard label="Call Rate" value={formatPercent(summary?.metrics?.callRate)} helper="Actual calls ÷ target calls" icon={TrendingUp} />
           <StatCard
             label="Doctors Reached"
-            value={formatPercent(summary?.metrics.doctorsReachedRate)}
-            helper={`${formatMetric(summary?.metrics.doctorsReached)} / ${formatMetric(summary?.metrics.doctorsPlanned)} planned doctors to date`}
+            value={formatPercent(summary?.metrics?.doctorsReachedRate)}
+            helper={`${formatMetric(summary?.metrics?.doctorsReached)} / ${formatMetric(summary?.metrics?.doctorsPlanned)} planned doctors to date`}
             icon={RefreshCcw}
           />
         </div>
