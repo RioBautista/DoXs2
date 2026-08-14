@@ -635,6 +635,35 @@ async function getActivityOverview(pool: sql.ConnectionPool, territories: string
   };
 }
 
+
+export async function getDashboardCallMap(clientSlug?: string | null, territories: string[] = []) {
+  const config = getClientMSSQLConfig(clientSlug);
+  if (!config) {
+    return { ok: false, clientSlug, callMap: null, message: 'MSSQL dashboard data source is not configured for this client yet.' };
+  }
+
+  let pool: sql.ConnectionPool | null = null;
+  try {
+    pool = await connectClientMSSQL(config);
+    const callMap = await getCycleCallMap(pool, territories);
+    return {
+      ok: true,
+      clientSlug: config.clientSlug,
+      callMap,
+      message: territories.length > 0 ? 'Live MSSQL call map loaded with territory scope.' : 'Live MSSQL call map loaded.',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      clientSlug: config.clientSlug,
+      callMap: null,
+      message: error instanceof Error ? `MSSQL call map temporarily unavailable: ${error.message}` : 'MSSQL call map temporarily unavailable.',
+    };
+  } finally {
+    if (pool) await pool.close();
+  }
+}
+
 export async function getDashboardSummary(clientSlug?: string | null, territories: string[] = []) {
   const config = getClientMSSQLConfig(clientSlug);
   if (!config) {

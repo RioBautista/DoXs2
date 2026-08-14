@@ -15,7 +15,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { getDashboardSummary, type DashboardSummary } from '../api';
+import { getDashboardCallMap, getDashboardSummary, type DashboardSummary } from '../api';
 import { ensureFirebaseSession, getClientFirestore } from '../lib/firebase';
 import type { AuthSession } from '../lib/auth';
 
@@ -357,6 +357,16 @@ export function Dashboard({ session }: DashboardProps) {
         const result = await getDashboardSummary();
         if (cancelled) return;
         setSummary(result);
+
+        void getDashboardCallMap()
+          .then((mapResult) => {
+            if (!cancelled && mapResult.ok && mapResult.callMap) {
+              setSummary((current) => current ? { ...current, callMap: mapResult.callMap ?? current.callMap ?? null } : result);
+            }
+          })
+          .catch(() => {
+            // Keep metrics visible if the heavy map query is unavailable.
+          });
 
         try {
           const firebaseReady = await ensureFirebaseSession();

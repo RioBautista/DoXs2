@@ -81,6 +81,25 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
 }
 
 
+export type DashboardCallMapResponse = {
+  ok: boolean;
+  clientSlug?: string | null;
+  callMap?: DashboardSummary['callMap'];
+  message?: string;
+};
+
+export async function getDashboardCallMap(): Promise<DashboardCallMapResponse> {
+  const response = await fetchJson(`${API_BASE}/dashboard/call-map`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  const data = (await response.json()) as DashboardCallMapResponse;
+  if (!response.ok) return { ok: false, message: data.message ?? 'Call map request failed.', callMap: null };
+  return data;
+}
+
+
 export type ReportsListResponse = {
   ok: boolean;
   reports?: ReportDefinitionSummary[];

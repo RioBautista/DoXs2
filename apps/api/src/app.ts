@@ -7,7 +7,7 @@ import { checkDrupalMySQLConnection, debugDrupalMySQLAuth, debugDrupalMySQLUsers
 import { clearSessionCookie, createSessionToken, getSessionCookieDiagnostics, getSessionFromRequest, setSessionCookie } from './session.js';
 import { readFreshDashboardCache, resolveDashboardScope, writeDashboardCache } from './dashboard-cache.js';
 import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
-import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
+import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardCallMap, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
 import { listReportDefinitions, runReportDefinition } from './report-engine.js';
 
 
@@ -162,6 +162,25 @@ export function buildApp() {
         },
       });
     }
+  });
+
+
+  app.get('/api/dashboard/call-map', async (request, reply) => {
+    const session = getSessionFromRequest(request);
+    if (!session) {
+      return reply.status(401).send({ ok: false, message: 'Not authenticated.' });
+    }
+
+    const requestClientSlug = clientSlugFromRequest(request);
+    if (!sessionMatchesRequestClient(session.clientSlug, requestClientSlug)) {
+      clearSessionCookie(reply, request);
+      return reply.status(401).send({ ok: false, message: 'Session client does not match this client domain.' });
+    }
+
+    const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
+    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const result = await getDashboardCallMap(effectiveClientSlug, territories);
+    return reply.status(result.ok ? 200 : 503).send(result);
   });
 
 
