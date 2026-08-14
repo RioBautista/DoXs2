@@ -638,21 +638,48 @@ async function getActivityOverview(pool: sql.ConnectionPool, territories: string
 
 
 
-export async function getDashboardCallMapScopeMetadata(clientSlug?: string | null) {
+export async function getDashboardCallMapScopeMetadata(clientSlug?: string | null, territories: string[] = []) {
   const config = getClientMSSQLConfig(clientSlug);
   if (!config) {
-    return { ok: false, clientSlug, cycle: null, selectedDate: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }), message: 'MSSQL dashboard data source is not configured for this client yet.' };
+    return { ok: false, clientSlug, cycle: null, selectedDate: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }), territories: [], message: 'MSSQL dashboard data source is not configured for this client yet.' };
   }
 
   let pool: sql.ConnectionPool | null = null;
   try {
     pool = await connectClientMSSQL(config);
     const cycle = await getCurrentCyclePeriod(pool);
+    const requestedScope = normalizedTerritories(territories);
+    const request = pool.request()
+      .input('startDate', sql.Date, cycle.startDate)
+      .input('endDateExclusive', sql.Date, new Date(new Date(`${cycle.endDate}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000));
+    addTerritoryInputs(request, requestedScope);
+    const territoryFilter = territoryPredicate(requestedScope, 'TERRITORY_ID');
+    const result = await request.query<{ territory_id: string | null; latest_visit_date: Date | string | null }>(`
+      select
+        ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))) as territory_id,
+        max(try_convert(datetime2, [VISIT_DATE])) as latest_visit_date
+      from [dbo].[ITINERARY]
+      where try_convert(datetime2, [VISIT_DATE]) >= @startDate
+        and try_convert(datetime2, [VISIT_DATE]) < @endDateExclusive
+        and [TERRITORY_ID] is not null
+        and ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))) <> ''
+        ${territoryFilter ? `and ${territoryFilter}` : ''}
+      group by ltrim(rtrim(cast([TERRITORY_ID] as varchar(128))))
+      order by territory_id
+    `);
+    const activeTerritories = result.recordset
+      .map((row) => row.territory_id)
+      .filter((value): value is string => Boolean(value));
+    const latestVisitDate = result.recordset
+      .map((row) => row.latest_visit_date ? isoDateOnly(row.latest_visit_date) : null)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1);
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-    const selectedDate = today >= cycle.startDate && today <= cycle.endDate ? today : cycle.startDate;
-    return { ok: true, clientSlug: config.clientSlug, cycle, selectedDate };
+    const selectedDate = latestVisitDate ?? (today >= cycle.startDate && today <= cycle.endDate ? today : cycle.startDate);
+    return { ok: true, clientSlug: config.clientSlug, cycle, selectedDate, territories: activeTerritories };
   } catch (error) {
-    return { ok: false, clientSlug: config.clientSlug, cycle: null, selectedDate: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }), message: error instanceof Error ? error.message : 'Call map scope metadata unavailable.' };
+    return { ok: false, clientSlug: config.clientSlug, cycle: null, selectedDate: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }), territories: [], message: error instanceof Error ? error.message : 'Call map scope metadata unavailable.' };
   } finally {
     if (pool) await pool.close();
   }

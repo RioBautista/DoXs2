@@ -503,17 +503,23 @@ export function Dashboard({ session }: DashboardProps) {
     }
 
     setCallMapStatus('loading');
-    void Promise.allSettled(territories.map(async (territoryId) => {
-      const result = await getDashboardCallMapTerritoryDate(territoryId, selectedCallMapDate);
-      if (cancelled) return;
-      if (result.ok && result.day) {
-        setCallMap((current) => mergeCallMapDay(current, result.cycle ?? callMapCycle, selectedCallMapDate, result.day!));
+    void (async () => {
+      let successfulLoads = 0;
+      for (const territoryId of territories) {
+        if (cancelled) return;
+        try {
+          const result = await getDashboardCallMapTerritoryDate(territoryId, selectedCallMapDate);
+          if (cancelled) return;
+          if (result.ok && result.day) {
+            successfulLoads += 1;
+            setCallMap((current) => mergeCallMapDay(current, result.cycle ?? callMapCycle, selectedCallMapDate, result.day!));
+          }
+        } finally {
+          if (!cancelled) setCallMapLoadedCount((count) => count + 1);
+        }
       }
-      setCallMapLoadedCount((count) => count + 1);
-    })).then((results) => {
-      if (cancelled) return;
-      setCallMapStatus(results.some((result) => result.status === 'fulfilled') ? 'loaded' : 'error');
-    });
+      if (!cancelled) setCallMapStatus(successfulLoads > 0 ? 'loaded' : 'error');
+    })();
 
     return () => { cancelled = true; };
   }, [callMapCycle, callMapTerritories, selectedCallMapDate]);

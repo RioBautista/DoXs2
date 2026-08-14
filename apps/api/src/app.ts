@@ -200,10 +200,11 @@ export function buildApp() {
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
     const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
-    const metadata = await getDashboardCallMapScopeMetadata(effectiveClientSlug);
+    const metadata = await getDashboardCallMapScopeMetadata(effectiveClientSlug, territories);
+    const effectiveTerritories = territories.length > 0 ? territories : metadata.territories;
     return reply.status(metadata.ok ? 200 : 503).send({
       ...metadata,
-      territories,
+      territories: effectiveTerritories,
       message: metadata.ok ? 'Call map scope loaded. Territory map data is loaded independently.' : metadata.message,
     });
   });
