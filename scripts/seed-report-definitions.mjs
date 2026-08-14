@@ -80,7 +80,7 @@ for (const file of files) {
   const id = file.replace(/\.json$/i, '');
   const fullPath = path.join(seedDir, file);
   const data = JSON.parse(await fs.readFile(fullPath, 'utf8'));
-  const payload = { ...data, updatedAt: new Date().toISOString(), source: 'repo-seed' };
+  const payload = { ...data, updatedAt: new Date().toISOString(), seedSource: 'repo-seed' };
   if (dryRun) {
     console.log(`[dry-run] would upsert ${collectionName}/${id}: ${data.title}`);
     continue;
