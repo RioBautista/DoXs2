@@ -10,6 +10,7 @@ import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
 import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardActivityOverview, getDashboardCallMapScopeMetadata, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
 import { listReportDefinitions, runReportDefinition } from './report-engine.js';
 import { getCallMapTerritoryDate } from './call-map-store.js';
+import { doctorDirectoryQuerySchema, listDoctors } from './doctor-directory.js';
 
 
 function clientSlugFromRequest(request: { headers: Record<string, string | string[] | undefined> }) {
@@ -389,6 +390,37 @@ export function buildApp() {
       territories,
     });
     return reply.status(200).send({ ok: true, reports });
+  });
+
+  app.get('/api/doctors', async (request, reply) => {
+    const session = getSessionFromRequest(request);
+    if (!session) return reply.status(401).send({ ok: false, message: 'Not authenticated.' });
+
+    const requestClientSlug = clientSlugFromRequest(request);
+    if (!sessionMatchesRequestClient(session.clientSlug, requestClientSlug)) {
+      clearSessionCookie(reply, request);
+      return reply.status(401).send({ ok: false, message: 'Session client does not match this client domain.' });
+    }
+
+    const parsed = doctorDirectoryQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.status(400).send({ ok: false, message: parsed.error.issues[0]?.message ?? 'Invalid doctor directory request.' });
+    }
+
+    const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
+    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const isManager = session.roles.some((role) => /admin|manager|district|region/i.test(role));
+    if (!territories.length && !isManager) {
+      return reply.status(403).send({ ok: false, message: 'No territory scope is assigned to this user.' });
+    }
+
+    try {
+      const result = await listDoctors(effectiveClientSlug, territories, parsed.data);
+      return reply.status(200).send(result);
+    } catch (error) {
+      request.log.error({ error, clientSlug: effectiveClientSlug, username: session.username }, 'doctor directory request failed');
+      return reply.status(503).send({ ok: false, message: error instanceof Error ? error.message : 'Doctor directory is temporarily unavailable.' });
+    }
   });
 
   app.get('/api/reports/:reportId/run', async (request, reply) => {

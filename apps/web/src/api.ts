@@ -1,6 +1,7 @@
-import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardSummary, LoginUser, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
+import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardSummary, DoctorDirectoryResponse, LoginUser, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
 
 export type { DashboardSummary, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
+export type { DoctorDirectoryResponse, DoctorDirectoryRow } from '@doxs/shared';
 
 type LoginRequest = {
   username: string;
@@ -77,6 +78,18 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
   if (!response.ok) {
     throw new Error(data.message ?? 'Dashboard request failed.');
   }
+  return data;
+}
+
+export async function getDoctors(params: { letter?: string; search?: string; cursor?: string; limit?: number }): Promise<DoctorDirectoryResponse> {
+  const query = new URLSearchParams();
+  if (params.letter) query.set('letter', params.letter);
+  if (params.search) query.set('search', params.search);
+  if (params.cursor) query.set('cursor', params.cursor);
+  query.set('limit', String(params.limit ?? 50));
+  const response = await fetchJson(`${API_BASE}/doctors?${query.toString()}`, { method: 'GET', credentials: 'include' });
+  const data = (await response.json()) as DoctorDirectoryResponse;
+  if (!response.ok) throw new Error(data.message ?? 'Doctor directory request failed.');
   return data;
 }
 

@@ -4,6 +4,30 @@ export type LoginUser = {
   roles: string[];
 };
 
+export type DoctorDirectoryRow = {
+  doctorId: string;
+  territoryId: string;
+  firstName: string;
+  middleName: string;
+  lastName: string;
+  displayName: string;
+  specialtyCode: string | null;
+  classCode: string | null;
+  frequency: number | null;
+  clinicAddress: string | null;
+};
+
+export type DoctorDirectoryResponse = {
+  ok: boolean;
+  doctors: DoctorDirectoryRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  generatedAt: string;
+  source: 'mssql';
+  territoryCount: number;
+  message?: string;
+};
+
 export type DashboardMetrics = {
   targetCalls: number | null;
   actualCalls: number | null;
