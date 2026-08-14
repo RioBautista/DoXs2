@@ -112,11 +112,22 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
   }
 
   useEffect(() => {
-    if (!containerRef.current || !mapboxToken || mapRef.current) return;
-    mapboxgl.accessToken = mapboxToken;
+    if (!containerRef.current || mapRef.current) return;
+    if (mapboxToken) mapboxgl.accessToken = mapboxToken;
     mapRef.current = new mapboxgl.Map({
       container: containerRef.current,
-      style: 'mapbox://styles/mapbox/streets-v11',
+      style: mapboxToken ? 'mapbox://styles/mapbox/streets-v11' : {
+        version: 8,
+        sources: {
+          'osm-raster': {
+            type: 'raster',
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            attribution: '© OpenStreetMap contributors',
+          },
+        },
+        layers: [{ id: 'osm-raster', type: 'raster', source: 'osm-raster' }],
+      },
       center: [120.9842, 14.5995],
       zoom: 11,
       attributionControl: false,
@@ -241,14 +252,10 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
         </div>
       ) : null}
 
-      {!mapboxToken ? (
-        <div className="flex h-[26rem] flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 text-center">
-          <MapPin className="mb-3 h-6 w-6 text-slate-400" />
-          <p className="text-sm font-semibold text-slate-700">Call map is disabled for this build.</p>
-          <p className="mt-2 max-w-md text-xs leading-5 text-slate-500">Add <code className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px]">VITE_MAPBOX_ACCESS_TOKEN</code> during the web build to enable the interactive Mapbox view.</p>
-        </div>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_20rem]">
+          {!mapboxToken ? (
+            <div className="lg:col-span-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">Mapbox token is not configured for this build, so the call map is using OpenStreetMap tiles as a safe fallback.</div>
+          ) : null}
           <div className="relative h-[30rem] overflow-hidden rounded-xl border border-slate-200">
             <div ref={containerRef} className="h-full w-full" />
             {!nodes.length ? (
@@ -278,7 +285,6 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
             </div>
           </aside>
         </div>
-      )}
       <p className="mt-3 text-xs text-slate-500">{calls.length} calls · {nodes.length} map nodes. Data is served by the DOXS API with user territory scope applied.</p>
     </div>
   );
