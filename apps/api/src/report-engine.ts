@@ -70,13 +70,21 @@ function normalized(value?: string | null) {
   return String(value ?? '').trim().toLowerCase();
 }
 
+function effectiveRoles(session: SessionContext) {
+  const roles = new Set(session.roles.map(normalized).filter(Boolean));
+  if (!roles.size) roles.add('medical representative');
+  if (roles.has('pilot-user') || roles.has('territory-user')) roles.add('medical representative');
+  if (roles.has('admin') || roles.has('doxs-admin') || roles.has('doccs-admin')) roles.add('doccs admin');
+  return [...roles];
+}
+
 function canAccessReport(report: ReportDefinition, session: SessionContext) {
   const clientSlugs = (report.clientSlugs ?? []).map(normalized).filter(Boolean);
   if (clientSlugs.length && !clientSlugs.includes(normalized(session.clientSlug))) return false;
 
   const allowedRoles = (report.allowedRoles ?? []).map(normalized).filter(Boolean);
   if (!allowedRoles.length) return true;
-  return session.roles.map(normalized).some((role) => allowedRoles.includes(role));
+  return effectiveRoles(session).some((role) => allowedRoles.includes(role));
 }
 
 async function loadReportDefinition(reportId: string): Promise<ReportDefinition | null> {
