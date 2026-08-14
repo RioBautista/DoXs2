@@ -39,6 +39,38 @@ const DOXS_API_SECRETS = [
   'IDOXS_CLIENT_IVACORP_MYSQL_PASSWORD',
 ];
 
+type FirebaseRequest = IncomingMessage & {
+  method?: string;
+  originalUrl?: string;
+  url?: string;
+  rawBody?: Buffer;
+};
+
+async function handleFirebaseRequest(request: FirebaseRequest, response: ServerResponse) {
+  await appReady;
+
+  // Firebase Functions provides POST bodies as an already-buffered rawBody.
+  // Passing the consumed IncomingMessage stream directly to Fastify can leave
+  // production POST routes waiting for a body/end event that never arrives.
+  if (request.rawBody && !['GET', 'HEAD'].includes(request.method ?? '')) {
+    const result = await (app.inject as any)({
+      method: request.method ?? 'POST',
+      url: request.originalUrl ?? request.url ?? '/',
+      headers: request.headers,
+      payload: request.rawBody,
+    });
+
+    response.statusCode = result.statusCode;
+    for (const [name, value] of Object.entries(result.headers)) {
+      if (value !== undefined) response.setHeader(name, value as string | number | readonly string[]);
+    }
+    response.end(result.body);
+    return;
+  }
+
+  app.server.emit('request', request, response);
+}
+
 export const api = onRequest(
   {
     region: 'us-central1',
@@ -48,10 +80,7 @@ export const api = onRequest(
     maxInstances: 5,
     secrets: DOXS_API_SECRETS,
   },
-  async (request: IncomingMessage, response: ServerResponse) => {
-    await appReady;
-    app.server.emit('request', request, response);
-  },
+  handleFirebaseRequest,
 );
 
 export const dashboardCacheFreshness = onSchedule(
