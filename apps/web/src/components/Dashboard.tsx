@@ -23,19 +23,32 @@ type DashboardProps = {
   session: AuthSession;
 };
 
-function StatCard({ label, value, helper, icon: Icon }: { label: string; value: string; helper: string; icon: typeof Activity }) {
+function StatCard({ label, value, helper, icon: Icon, isLoading = false }: { label: string; value: string; helper: string; icon: typeof Activity; isLoading?: boolean }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{value}</p>
-          <p className="mt-2 text-xs text-slate-500">{helper}</p>
+          {isLoading ? (
+            <div className="mt-4 h-8 w-24 animate-pulse rounded-lg bg-slate-200" aria-label={`${label} loading`} />
+          ) : (
+            <p className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{value}</p>
+          )}
+          {isLoading ? <div className="mt-3 h-3 w-40 animate-pulse rounded-full bg-slate-100" /> : <p className="mt-2 text-xs text-slate-500">{helper}</p>}
         </div>
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-brand-600">
           <Icon className="h-5 w-5" />
         </div>
       </div>
+    </div>
+  );
+}
+
+function LoadingIndicator({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-center gap-3 text-sm font-medium text-slate-500" role="status" aria-live="polite">
+      <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-brand-600" />
+      <span>{label}</span>
     </div>
   );
 }
@@ -67,7 +80,7 @@ function formatMapTitleDate(date: string) {
   return new Intl.DateTimeFormat('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
-function CallMap({ summary, isLoading }: { summary: DashboardSummary | null; isLoading: boolean }) {
+function CallMap({ summary, status }: { summary: DashboardSummary | null; status: 'loading' | 'loaded' | 'error' }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
@@ -260,10 +273,14 @@ function CallMap({ summary, isLoading }: { summary: DashboardSummary | null; isL
             <div ref={containerRef} className="h-full w-full" />
             {mapError ? (
               <div className="absolute inset-0 flex items-center justify-center bg-red-50/95 p-6 text-center text-sm text-red-700">Map could not initialize: {mapError}</div>
-            ) : isLoading ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90 text-center text-sm text-slate-500">Loading call map…</div>
+            ) : status === 'loading' ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90"><LoadingIndicator label="Loading call map…" /></div>
+            ) : status === 'error' ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-amber-50/95 p-6 text-center text-sm text-amber-700">Call map is still unavailable. Metrics remain visible while the map API recovers.</div>
+            ) : !calls.length ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90 text-center text-sm text-slate-500">No calls found for this date.</div>
             ) : !nodes.length ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90 text-center text-sm text-slate-500">No geotagged calls found for this date.</div>
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90 p-6 text-center text-sm text-slate-500">Calls loaded, but no valid GPS coordinates were found for this date.</div>
             ) : null}
           </div>
           <aside className="max-h-[30rem] overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -275,7 +292,7 @@ function CallMap({ summary, isLoading }: { summary: DashboardSummary | null; isL
               </div>
             </div>
             <div className="space-y-2">
-              {panelCalls.length ? panelCalls.map((call) => (
+              {status === 'loading' ? <div className="rounded-lg bg-white p-4"><LoadingIndicator label="Loading call list…" /></div> : panelCalls.length ? panelCalls.map((call) => (
                 <button key={call.id} type="button" onClick={() => focusNode(call.nodeId)} className="w-full rounded-lg bg-white p-3 text-left text-xs shadow-sm transition hover:ring-2 hover:ring-slate-200">
                   <div className="flex justify-between gap-2 font-semibold text-slate-900">
                     <span>{call.timeLabel}</span>
@@ -294,7 +311,7 @@ function CallMap({ summary, isLoading }: { summary: DashboardSummary | null; isL
   );
 }
 
-function ActivityOverviewChart({ summary, isLoading }: { summary: DashboardSummary | null; isLoading: boolean }) {
+function ActivityOverviewChart({ summary, status }: { summary: DashboardSummary | null; status: 'loading' | 'loaded' | 'error' }) {
   const points = summary?.activityOverview?.points ?? [];
   const option = {
     color: ['#2563eb', '#10b981'],
@@ -336,8 +353,12 @@ function ActivityOverviewChart({ summary, isLoading }: { summary: DashboardSumma
     ],
   };
 
-  if (isLoading) {
-    return <div className="flex h-64 items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-500">Loading activity overview…</div>;
+  if (status === 'loading') {
+    return <div className="flex h-64 items-center justify-center rounded-xl bg-slate-50"><LoadingIndicator label="Loading activity overview…" /></div>;
+  }
+
+  if (status === 'error') {
+    return <div className="flex h-64 items-center justify-center rounded-xl bg-amber-50 px-6 text-center text-sm text-amber-700">Activity overview is still unavailable. Other dashboard panels continue loading independently.</div>;
   }
 
   if (!points.length) {
@@ -351,8 +372,8 @@ export function Dashboard({ session }: DashboardProps) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [subscriptionStatus, setSubscriptionStatus] = useState<'pending' | 'subscribed' | 'api-only'>('pending');
-  const [activityLoading, setActivityLoading] = useState(true);
-  const [callMapLoading, setCallMapLoading] = useState(true);
+  const [activityStatus, setActivityStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [callMapStatus, setCallMapStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
 
   useEffect(() => {
     let cancelled = false;
@@ -366,33 +387,33 @@ export function Dashboard({ session }: DashboardProps) {
         if (cancelled) return;
         setSummary(result);
 
-        setActivityLoading(true);
-        setCallMapLoading(true);
+        setActivityStatus('loading');
+        setCallMapStatus('loading');
 
         void getDashboardActivityOverview()
           .then((activityResult) => {
             if (!cancelled && activityResult.ok && activityResult.activityOverview) {
               setSummary((current) => current ? { ...current, activityOverview: activityResult.activityOverview ?? current.activityOverview ?? null } : result);
+              setActivityStatus('loaded');
+            } else if (!cancelled) {
+              setActivityStatus(activityResult.ok ? 'loaded' : 'error');
             }
           })
           .catch(() => {
-            // Keep metrics visible if the activity query is unavailable.
-          })
-          .finally(() => {
-            if (!cancelled) setActivityLoading(false);
+            if (!cancelled) setActivityStatus('error');
           });
 
         void getDashboardCallMap()
           .then((mapResult) => {
             if (!cancelled && mapResult.ok && mapResult.callMap) {
               setSummary((current) => current ? { ...current, callMap: mapResult.callMap ?? current.callMap ?? null } : result);
+              setCallMapStatus('loaded');
+            } else if (!cancelled) {
+              setCallMapStatus(mapResult.ok ? 'loaded' : 'error');
             }
           })
           .catch(() => {
-            // Keep metrics visible if the heavy map query is unavailable.
-          })
-          .finally(() => {
-            if (!cancelled) setCallMapLoading(false);
+            if (!cancelled) setCallMapStatus('error');
           });
 
         try {
@@ -427,8 +448,8 @@ export function Dashboard({ session }: DashboardProps) {
         if (!cancelled) {
           setSummary(null);
           setSubscriptionStatus('api-only');
-          setActivityLoading(false);
-          setCallMapLoading(false);
+          setActivityStatus('error');
+          setCallMapStatus('error');
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -457,14 +478,15 @@ export function Dashboard({ session }: DashboardProps) {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Target Calls" value={formatMetric(summary?.metrics?.targetCalls)} helper="Planned itinerary rows, month-to-date" icon={FileText} />
-          <StatCard label="Actual Calls" value={formatMetric(summary?.metrics?.actualCalls)} helper="Visited itinerary rows, month-to-date" icon={Users} />
-          <StatCard label="Call Rate" value={formatPercent(summary?.metrics?.callRate)} helper="Actual calls ÷ target calls" icon={TrendingUp} />
+          <StatCard label="Target Calls" value={formatMetric(summary?.metrics?.targetCalls)} helper="Planned itinerary rows, month-to-date" icon={FileText} isLoading={isLoading} />
+          <StatCard label="Actual Calls" value={formatMetric(summary?.metrics?.actualCalls)} helper="Visited itinerary rows, month-to-date" icon={Users} isLoading={isLoading} />
+          <StatCard label="Call Rate" value={formatPercent(summary?.metrics?.callRate)} helper="Actual calls ÷ target calls" icon={TrendingUp} isLoading={isLoading} />
           <StatCard
             label="Doctors Reached"
             value={formatPercent(summary?.metrics?.doctorsReachedRate)}
             helper={`${formatMetric(summary?.metrics?.doctorsReached)} / ${formatMetric(summary?.metrics?.doctorsPlanned)} planned doctors to date`}
             icon={RefreshCcw}
+            isLoading={isLoading}
           />
         </div>
 
@@ -479,10 +501,10 @@ export function Dashboard({ session }: DashboardProps) {
               </div>
               <BarChart3 className="h-5 w-5 text-slate-400" />
             </div>
-            <ActivityOverviewChart summary={summary} isLoading={activityLoading} />
+            <ActivityOverviewChart summary={summary} status={activityStatus} />
           </div>
 
-          <CallMap summary={summary} isLoading={callMapLoading} />
+          <CallMap summary={summary} status={callMapStatus} />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
