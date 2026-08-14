@@ -286,6 +286,25 @@ Cloud/API deployment notes are in:
 runbooks/deploy-doxs-api-cloudrun.md
 ```
 
+## Business rules
+
+Detailed business rules are maintained in:
+
+```text
+docs/business-rules.md
+```
+
+They currently cover:
+
+- multi-client hostname/session behavior
+- authentication and session rules
+- territory scoping
+- dashboard metric formulas
+- Firestore cache rules
+- report execution rules
+- Doctors/TML rules
+- data safety and approval rules
+
 ## Operational guardrails
 
 - No secrets in GitHub.
