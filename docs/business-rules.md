@@ -1,410 +1,453 @@
 # DoXs2 Business Rules
 
-Business rules captured so far for the DoXs2 / iDoXs modernization project.
+Business rules for the DoXs2 / iDoXs modernization project.
 
-These rules describe how the modern application should behave while it still relies on legacy client databases. Where a rule is not fully implemented yet, it is marked as planned/required so future development can follow the same operating model.
+This document is intentionally business-facing. It defines terms, expected behavior, workflow rules, and report meanings in plain language. Details about how the product is built or operated belong in `docs/system-documentation.md`.
 
-## 1. Multi-client rules
+## 1. Purpose
 
-### 1.1 Client is resolved by hostname
+DoXs2 should preserve the business meaning of iDoXs while modernizing the user experience.
 
-DoXs2 uses one shared web application for multiple clients.
+The system must help sales, field, district, and management users answer business questions such as:
+
+- Who are the doctors assigned to each territory?
+- Which doctors were planned for visits?
+- Which doctors were actually reached?
+- How well did each MedRep, territory, district, or client perform against plan?
+- Which reports should match the legacy iDoXs interpretation of the data?
+
+When there is disagreement about what a term means, the business meaning should be clarified here before reports or dashboards are treated as final.
+
+## 2. Business roles
+
+### 2.1 MedRep / Medical Representative
+
+A MedRep is the field user responsible for covering doctors and clinics within an assigned territory.
+
+Typical business responsibilities:
+
+- maintain or submit a Territory Master List when required
+- prepare or submit a visit plan / itinerary
+- visit doctors according to approved coverage plans
+- record actual call or visit activity
+
+### 2.2 District Manager
+
+A District Manager supervises MedReps within a district or area of responsibility.
+
+Typical business responsibilities:
+
+- review MedRep plans and territory lists
+- approve or reject submitted plans/lists when the workflow requires approval
+- monitor coverage, doctor reach, call rate, and activity performance
+
+### 2.3 Manager / Brand Manager / Admin
+
+Management users may review broader activity across multiple territories, districts, or clients depending on the business permission granted to them.
+
+Business visibility should follow the role’s responsibility. A user should not automatically see all business data unless their business role explicitly requires that level of visibility.
+
+## 3. Client and territory principles
+
+### 3.1 Client context
+
+Business data belongs to a specific client/company.
 
 Examples:
 
-- `oxford.idoxs.app` resolves to client `oxford`.
-- `wert.idoxs.app` resolves to client `wert`.
+- Oxford business data should be interpreted as Oxford data.
+- Wert business data should be interpreted as Wert data.
 
-The API must use the resolved client context when selecting credentials, database configuration, cache paths, report definitions, and business logic.
+Reports and dashboards should clearly indicate or imply which client context they represent.
 
-### 1.2 Session client must match requested client
+### 3.2 Territory ownership
 
-If a user logs in under one client context, that session must not be silently reused for another client hostname.
+Territory is the primary business scope for MedRep coverage.
 
-Current rule:
+A territory represents the assigned coverage area/list of a MedRep or team for a planning period. When reports summarize performance, the territory should be treated as a key business dimension.
 
-- If session client and request hostname client do not match, the API clears the session and returns `401`.
+### 3.3 Territory visibility
 
-### 1.3 Browser is not trusted for client enforcement
+Users should see the territories relevant to their assigned business responsibility.
 
-The frontend may display or pass client hints, but the API remains the enforcement point.
+Typical expectation:
 
-The API must resolve and validate client context server-side.
+- MedReps see their own assigned territory or territories.
+- District Managers see territories under their district or supervision.
+- Higher management sees wider scopes only when that is part of their role.
 
-## 2. Authentication and user identity
+### 3.4 Empty or unclear assignment
 
-### 2.1 Users authenticate through the API
+If a user has no clear assigned territory or business scope, reports should not assume they are allowed to view everything.
 
-Users log in through `/api/auth/login` using production-style credentials.
+The correct assignment should be confirmed before broad visibility is granted.
 
-The API validates the user against the existing legacy/client auth source.
+## 4. Doctor and territory list definitions
 
-### 2.2 Session contents
+### 4.1 Doctor Universe
 
-The API session should carry:
+The Doctor Universe is the overall pool of unique doctors recognized by the business for a client.
 
-- username
-- display name
-- roles
-- client slug/context
+Business meaning:
 
-### 2.3 Protected routes require a session
+- It represents the client’s known doctor population.
+- A doctor should ideally be counted once even if the doctor appears in multiple lists, clinics, plans, or visits.
+- If duplicate doctor records exist, the business must define how they should be treated before final reporting.
 
-Any route that returns client operational data must require a valid session.
+Preferred business identifier:
 
-Unauthenticated calls return `401`.
+- PRC license number is the preferred real-world identifier when available and reliable.
 
-## 3. Territory scope rules
+Caution:
 
-Territory scope is a core business rule for iDoXs data.
+- Birthday-based matching is discouraged because birthdays may be optional, incomplete, or privacy-sensitive.
+- Fallback matching should be explicitly agreed per client when PRC or another trusted unique identifier is missing.
 
-### 3.1 Data visibility follows assigned territories
+### 4.2 Doctor Count
 
-For user-facing operational data, users should only see records that belong to their assigned territories unless a confirmed global/admin role explicitly allows wider access.
-
-### 3.2 API enforces territory scope
-
-Frontend filters are not security controls.
-
-The API must apply territory predicates server-side when reading MSSQL data or report results.
-
-### 3.3 Empty territory scope is restrictive
-
-For required territory-scoped reports/features, an empty territory list should return no data, not all data.
-
-Implemented report behavior:
-
-- Required territory scope with no territories becomes `and 1 = 0`.
-
-### 3.4 Territory values are normalized
-
-Territory identifiers should be trimmed, deduplicated, and sorted before being used for:
-
-- SQL predicates
-- cache scope hashes
-- Firestore cache keys
-- comparison/freshness checks
-
-## 4. Dashboard business rules
-
-The dashboard currently focuses on call activity and doctor reach metrics.
-
-### 4.1 Target calls
-
-Target calls are counted from itinerary/planned-call style data.
-
-Current implementation direction:
-
-- Count month-to-date rows using `ITINERARY_DATE` where available.
-- Apply territory scope when provided.
-
-### 4.2 Actual calls
-
-Actual calls are counted from completed/visited-call style data.
-
-Current implementation direction:
-
-- Count month-to-date rows using `VISIT_DATE` where available.
-- Apply territory scope when provided.
-
-### 4.3 Call rate
-
-Call rate is calculated as:
-
-```text
-actualCalls / targetCalls * 100
-```
-
-If `targetCalls` is null or zero, `callRate` should be null rather than divide by zero.
-
-### 4.4 Doctors planned
-
-Doctors planned is the distinct count of doctors in planned itinerary rows for the current period.
-
-Current implementation direction:
-
-- Distinct doctor count from itinerary data using `ITINERARY_DATE`.
-- Apply territory scope.
-
-### 4.5 Doctors reached
-
-Doctors reached is the distinct count of doctors with actual visits for the current period.
-
-Current implementation direction:
-
-- Distinct doctor count from itinerary/visit data using `VISIT_DATE`.
-- Apply territory scope.
-
-### 4.6 Doctors reached rate
-
-Doctors reached rate is calculated as:
-
-```text
-doctorsReached / doctorsPlanned * 100
-```
-
-If `doctorsPlanned` is null or zero, `doctorsReachedRate` should be null.
-
-### 4.7 Activity overview
-
-Activity overview compares target calls and actual calls by date within the current period.
-
-Current implementation direction:
-
-- Build daily points from period start to end.
-- Count target calls by `ITINERARY_DATE`.
-- Count actual calls by `VISIT_DATE`.
-- Apply territory scope.
-- Hide weekend points unless target or actual activity exists.
-
-### 4.8 Call map
-
-Call map displays visit/call activity grouped by day and territory.
-
-Current implementation direction:
-
-- Use current cycle/period date range.
-- Group calls by territory.
-- Sort calls by visit date/time sequence.
-- Include doctor id, doctor name, PSR, territory id, address, and GPS fields where available.
-- Use actual GPS coordinates when available.
-- Mark coordinates as missing when not available.
-- For display continuity, missing GPS may use nearest available coordinates as inferred display coordinates.
-- Territory colors are deterministic from territory id.
-
-## 5. Cache business rules
-
-Firestore is used as a cache and modern app-data layer.
-
-### 5.1 Cache scope
-
-Dashboard cache scope should include:
-
-- client id / client slug
-- assigned territories or user fallback scope
-- roles
-- period key
-- business rules version
-
-### 5.2 Business rules version
-
-Cache documents include a `businessRulesVersion`.
-
-When metric formulas, scope logic, or material report behavior changes, the business rules version should be bumped so old cache entries are not treated as equivalent to new results.
-
-Current version:
-
-```text
-1
-```
-
-### 5.3 Cache metadata
-
-Cache responses should include metadata such as:
-
-- cachePath
-- scopeHash
-- scopeKey
-- viewKey
-- periodKey
-- businessRulesVersion
-- generatedAt
-- expiresAt
-- source
-- stale status/reason when applicable
-
-### 5.4 Cache freshness
-
-Dashboard cache freshness can be checked against itinerary territory watermarks.
-
-If a territory’s latest visit/itinerary watermark advances, cache documents intersecting that territory should be marked stale or refreshed.
-
-Current stale reason:
-
-```text
-itinerary-territory-watermark-advanced
-```
-
-### 5.5 Cache source values
-
-Allowed cache source labels:
-
-- `firestore-cache`
-- `mssql-refresh`
-- `api-fallback`
-
-## 6. Report business rules
-
-### 6.1 Reports are definitions, not hardcoded pages
-
-DoXs2 report behavior should move from legacy PHP files toward Firestore report definition documents.
-
-A report definition includes:
-
-- title
-- description/category
-- client availability
-- filters
-- output types
-- columns
-- data source definition
-- SQL template
-- permission/scope rules
-
-### 6.2 Reports must be read-only
-
-Report SQL must be read-only.
-
-Do not allow report definitions to perform writes, deletes, schema changes, credential reads, or unsafe side effects.
-
-### 6.3 Report filters must be validated
-
-Report filters must be defined in the report specification and validated by the API.
+Doctor Count is the number of different doctors included in a specific business context.
 
 Examples:
 
-- date filters
-- text filters
-- select filters
-- number filters
-- boolean filters
+- doctors in a territory
+- doctors planned for visits
+- doctors actually visited
+- doctors reached within a period
 
-### 6.4 Report SQL must use bound parameters
+Business meaning:
 
-User-provided values must be passed as bound parameters, not string-concatenated SQL.
+- The same doctor should count only once within the same counting context.
+- The report must state the context clearly, because “doctor count” can mean different things depending on whether the list is planned, actual, assigned, reached, or universe-level.
 
-### 6.5 Report territory scope is server-enforced
+### 4.3 Territory Master List
 
-Report definitions may define territory scope as:
+The Territory Master List is the doctor list assigned to or submitted by a MedRep for territory coverage.
 
-- required
-- optional
+Business meaning:
 
-If required and the user has no territories, the result should be empty.
+- It defines which doctors belong to a MedRep’s territory or coverage responsibility for a planning period.
+- It is commonly tied to visit planning and management approval.
+- It may represent a draft, submitted, approved, rejected, or historical list depending on workflow status.
 
-## 7. Doctors / Territory Master List rules
+Business workflow:
 
-The Doctors / TML page is the first delegated DaloBoy feature.
+1. MedRep prepares or submits the list.
+2. District Manager reviews the submitted list when approval is required.
+3. Approved lists become the basis for planning, coverage, and performance expectations.
 
-### 7.1 Users browse assigned doctor master data
+Reporting requirement:
 
-Users should be able to browse doctors/TML records in their territory scope.
+- Reports using the Territory Master List should state whether they are using draft, submitted, approved, current, or historical lists.
 
-Legacy behavior to preserve:
+### 4.4 Doctor assignment to territory
 
-- alphabetical browsing
-- basic search
-- territory master list style lookup
+A doctor may appear in one or more territories depending on business rules and client setup.
 
-### 7.2 Do not load the full master list by default
+Before treating a doctor as duplicated or incorrectly assigned, confirm whether the client allows:
 
-The Doctors/TML page must not load every doctor for broad users in one request.
+- shared doctors
+- multi-clinic coverage
+- cross-territory coverage
+- temporary reassignment
+- historical territory movement
 
-Required behavior:
+## 5. Visit planning and call activity
 
-- alphabet filter
-- debounced search
-- incremental loading/pagination
-- server-side limit cap
+### 5.1 Visit Plan / Itinerary
 
-### 7.3 Search should be safe for MSSQL
+A Visit Plan or Itinerary is the planned schedule of doctor calls for a MedRep and period.
 
-Avoid broad unbounded searches against large tables.
+Business meaning:
 
-Recommended rules:
+- It represents intended activity, not necessarily completed activity.
+- It is used as the basis for target calls and planned doctor coverage.
+- Depending on client workflow, it may require submission and approval.
 
-- Require at least 2-3 characters for broad search when no letter is selected.
-- Prefer prefix searches where acceptable.
-- Avoid default `%term%` full-table scans.
-- Cache common alphabetical pages in Firestore.
+### 5.2 Actual Call / Actual Visit
 
-### 7.4 Doctors cache should be scope-aware
+An Actual Call or Actual Visit is a visit that was performed or recorded as completed.
 
-Doctors/TML cache keys should include:
+Business meaning:
 
-- client slug
-- territory scope hash
-- letter filter
-- normalized search hash
-- page/cursor
-- business rules version
+- It represents field activity that actually happened or was reported as completed.
+- It should be distinguished from planned calls.
+- Reports must not mix planned and actual calls without labeling them clearly.
 
-### 7.5 Doctor row minimum fields
+### 5.3 Target Calls
 
-Initial row fields can include:
+Target Calls are the planned calls expected for a period.
 
-- doctor id / code
+Business meaning:
+
+- Target calls come from the approved or accepted planning basis for the selected period.
+- Target calls are used as the denominator for call-rate performance.
+- If a plan is not final or approved, reports should clarify whether targets are draft or approved.
+
+### 5.4 Actual Calls
+
+Actual Calls are completed or recorded visits within the selected period.
+
+Business meaning:
+
+- Actual calls are used to measure execution against plan.
+- Actual calls should be reported separately from target calls.
+- If cancellation, missed-call, or reschedule statuses are included or excluded, the report must state the rule.
+
+### 5.5 Call Rate
+
+Call Rate measures actual calls against target calls.
+
+Business formula:
+
+```text
+Actual Calls / Target Calls × 100
+```
+
+Business rule:
+
+- If there are no target calls, call rate should be shown as not applicable rather than forced to zero or infinity.
+- Reports should label whether call rate is cycle-to-date, month-to-date, date-range, territory-level, MedRep-level, district-level, or client-level.
+
+### 5.6 Doctors Planned
+
+Doctors Planned is the number of distinct doctors included in the visit plan for the selected business period and scope.
+
+Business meaning:
+
+- It measures intended doctor coverage.
+- A doctor planned multiple times within the same context should count once for doctor-planned count, unless the report explicitly measures planned call frequency instead.
+
+### 5.7 Doctors Reached
+
+Doctors Reached is the number of distinct doctors with actual completed visits in the selected business period and scope.
+
+Business meaning:
+
+- It measures actual doctor coverage.
+- A doctor visited multiple times within the same context should count once for doctors reached, unless the report explicitly measures call frequency.
+
+### 5.8 Doctors Reached Rate
+
+Doctors Reached Rate measures how much of the planned doctor coverage was actually reached.
+
+Business formula:
+
+```text
+Doctors Reached / Doctors Planned × 100
+```
+
+Business rule:
+
+- If there are no planned doctors, doctors reached rate should be shown as not applicable.
+
+## 6. Period and date rules
+
+### 6.1 Reporting period
+
+A reporting period is the business date range used for a dashboard, report, or performance review.
+
+Examples:
+
+- day
+- week
+- cycle
+- month-to-date
+- quarter-to-date
+- custom date range
+
+Reports should clearly show the reporting period used.
+
+### 6.2 Current cycle
+
+Current cycle means the active business cycle for the client.
+
+If cycle definitions differ per client, the client-specific definition should be documented before cycle-based reports are considered final.
+
+### 6.3 Date-range reports
+
+When a report accepts a start date and end date, the report should clearly state whether both dates are included.
+
+Default business expectation:
+
+- start date is included
+- end date is included
+
+## 7. Dashboard business meanings
+
+### 7.1 Home dashboard
+
+The Home dashboard gives a quick operational view of field activity and coverage.
+
+It should prioritize business clarity over internal detail.
+
+At minimum, dashboard cards and charts should make clear:
+
+- what period is being shown
+- what territory or user scope is being shown
+- whether values are planned, actual, or calculated
+
+### 7.2 Activity overview
+
+Activity overview compares planned activity and actual activity across dates within the selected period.
+
+Business meaning:
+
+- It helps managers see whether activity is happening according to plan.
+- Days without planned or actual activity may be hidden or de-emphasized if they are not useful for decision-making.
+
+### 7.3 Call map
+
+Call map shows field visit activity geographically.
+
+Business meaning:
+
+- It helps review coverage movement and visit sequencing.
+- Missing location data should be visible as a data-quality issue, not silently treated as accurate location data.
+- If a display uses inferred or approximate locations for continuity, that should be clearly labeled.
+
+## 8. Report business rules
+
+### 8.1 Reports are business definitions
+
+A report should have a clear business purpose before it is built.
+
+Each report should define:
+
+- report title
+- plain-language purpose
+- intended users/roles
+- client availability if client-specific
+- required filters
+- output columns and meanings
+- business formula or counting rule
+- known exclusions or assumptions
+
+### 8.2 Reports should avoid ambiguous metric names
+
+If a metric name can mean multiple things, the report should qualify it.
+
+Examples:
+
+- “Doctor Count” should specify universe, assigned, planned, reached, or visited.
+- “Calls” should specify target, actual, missed, cancelled, or total.
+- “Coverage” should specify doctor coverage, territory coverage, or call completion.
+
+### 8.3 Reports should preserve legacy meaning where required
+
+Some reports must match legacy iDoXs output exactly for continuity.
+
+For each report, business owners should decide whether it is:
+
+- legacy-compatible: must match legacy meaning/output closely
+- modernized: may improve labels, filters, grouping, or interpretation
+- new: created for DoXs2 and not expected to match a legacy report
+
+### 8.4 Report filters are business controls
+
+Filters should reflect how users think about the report.
+
+Common filters:
+
+- client
+- territory
+- district
+- MedRep
+- reporting period
+- doctor specialty
+- doctor class
+- product/brand when relevant
+- report status such as draft/submitted/approved
+
+### 8.5 Report status should be explicit
+
+If a report depends on workflow state, it should state which status is included.
+
+Examples:
+
+- draft plans
+- submitted plans
+- approved plans
+- rejected plans
+- completed visits
+- missed calls
+- cancelled calls
+
+## 9. Doctors / TML page business rules
+
+### 9.1 Purpose
+
+The Doctors / Territory Master List page lets users browse the doctor list relevant to their business scope.
+
+It supports territory review, planning validation, and doctor lookup.
+
+### 9.2 Expected browsing behavior
+
+Users should be able to browse doctors in a practical way, such as:
+
+- alphabetically by doctor name
+- by search term
+- by territory
+- by specialty or class when useful
+
+### 9.3 Business fields
+
+Initial business fields may include:
+
+- doctor code or identifier
 - doctor name
 - specialty
-- territory id/name
-- class/frequency if available
-- clinic/address summary if safe and available
+- territory
+- class/frequency if used by the client
+- clinic or address summary when appropriate
 
-Exact fields must be confirmed by read-only schema inspection before final SQL.
+Exact field labels should follow business terminology used by the client.
 
-## 8. Data safety rules
+### 9.4 Privacy and sensitivity
 
-### 8.1 Frontend must not contain secrets
+Doctor personal data should be limited to what is needed for the business task.
 
-Never commit or expose:
+Birthday, personal contact details, and other sensitive information should not be shown or used for matching unless explicitly approved for a valid business reason.
 
-- MSSQL credentials
-- Firebase Admin credentials
-- service account JSON
-- SSH keys
-- API secrets
-- tokens/passwords
+## 10. Data quality and interpretation rules
 
-### 8.2 MSSQL access is API-only
+### 10.1 Missing data
 
-The browser must never connect directly to MSSQL or legacy databases.
+Missing data should be visible where it affects business interpretation.
 
-### 8.3 Prefer read-only operations
+Examples:
 
-Until explicit write workflows are designed and approved, DoXs2 should treat legacy data as read-only.
+- missing PRC/license identifier
+- missing territory assignment
+- missing doctor specialty
+- missing GPS/location
+- missing approval status
 
-### 8.4 Expensive queries need controls
+### 10.2 Duplicate records
 
-Large or expensive data access must use:
+Possible duplicate doctors or territory records should not be silently merged unless the business matching rule is documented.
 
-- limits
-- pagination/cursors
-- territory predicates
-- timeouts
-- cache
-- schema/index awareness where possible
+### 10.3 Historical changes
 
-## 9. Operational approval rules
+Reports should distinguish current assignments from historical assignments when the difference matters.
 
-### 9.1 Safe to run directly
+Examples:
 
-Read-only checks are generally safe:
+- doctor moved to another territory
+- MedRep reassigned
+- district structure changed
+- doctor removed from an approved list
 
-- health checks
-- schema inspection
-- count queries
-- cache status checks
-- deploy status checks
+## 11. Open business questions
 
-### 9.2 Requires explicit approval
+These require business confirmation before reports are finalized:
 
-Ask before:
-
-- production data writes
-- destructive database operations
-- credential creation/rotation/deletion
-- IAM/security group/firewall changes
-- DNS changes
-- production deploys with external impact if target is ambiguous
-
-## 10. Current open business-rule questions
-
-These still need confirmation as features are built:
-
-1. Which roles count as global/admin for cross-territory access?
-2. Which legacy table is the authoritative doctor master source per client?
-3. Which territory table/view is authoritative for each client?
-4. What is the accepted current cycle definition for every client?
-5. Should Doctors/TML search include address/clinic fields or only doctor name/code?
-6. What cache TTL is acceptable for doctor master data per client?
-7. Which reports must exactly match legacy PHP output and which can be modernized?
+1. Which roles are allowed to view cross-territory or all-client summaries?
+2. What is the authoritative definition of Doctor Universe per client?
+3. What fallback matching rule should be used when PRC/license number is missing?
+4. Can doctors belong to multiple territories at the same time?
+5. Which Territory Master List status should dashboards use by default: draft, submitted, approved, or current active?
+6. What is the official current-cycle definition for Oxford and Wert?
+7. Which reports must exactly match legacy iDoXs outputs?
+8. Which doctor personal fields are approved for display or matching?
+9. How should missed, cancelled, rescheduled, and invalid calls affect call-rate reports?
+10. Should weekend or holiday activity be included by default in activity reports?

@@ -294,16 +294,17 @@ Detailed business rules are maintained in:
 docs/business-rules.md
 ```
 
-They currently cover:
+They are intentionally business-facing and cover:
 
-- multi-client hostname/session behavior
-- authentication and session rules
-- territory scoping
-- dashboard metric formulas
-- Firestore cache rules
-- report execution rules
-- Doctors/TML rules
-- data safety and approval rules
+- business role meanings
+- client and territory principles
+- Doctor Universe, Doctor Count, and Territory Master List definitions
+- visit planning, actual call, target call, and doctor reach meanings
+- dashboard and report business interpretation rules
+- Doctors/TML business behavior
+- data-quality and privacy interpretation rules
+
+Infrastructure, API, cache, deployment, and enforcement details stay in this system documentation file instead.
 
 ## Operational guardrails
 
