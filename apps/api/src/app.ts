@@ -7,7 +7,7 @@ import { checkDrupalMySQLConnection, debugDrupalMySQLAuth, debugDrupalMySQLUsers
 import { clearSessionCookie, createSessionToken, getSessionCookieDiagnostics, getSessionFromRequest, setSessionCookie } from './session.js';
 import { readFreshDashboardCache, resolveDashboardScope, writeDashboardCache } from './dashboard-cache.js';
 import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
-import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardCallMap, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
+import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardActivityOverview, getDashboardCallMap, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
 import { listReportDefinitions, runReportDefinition } from './report-engine.js';
 
 
@@ -136,7 +136,7 @@ export function buildApp() {
 
     try {
       const cachedSummary = await readFreshDashboardCache(scope);
-      if (cachedSummary) return reply.status(200).send(cachedSummary);
+      if (cachedSummary) return reply.status(200).send({ ...cachedSummary, activityOverview: null, callMap: null });
     } catch (error) {
       request.log.warn({ error, cachePath: scope.cachePath }, 'Failed to read dashboard Firestore cache; falling back to MSSQL refresh.');
     }
@@ -162,6 +162,25 @@ export function buildApp() {
         },
       });
     }
+  });
+
+
+  app.get('/api/dashboard/activity-overview', async (request, reply) => {
+    const session = getSessionFromRequest(request);
+    if (!session) {
+      return reply.status(401).send({ ok: false, message: 'Not authenticated.' });
+    }
+
+    const requestClientSlug = clientSlugFromRequest(request);
+    if (!sessionMatchesRequestClient(session.clientSlug, requestClientSlug)) {
+      clearSessionCookie(reply, request);
+      return reply.status(401).send({ ok: false, message: 'Session client does not match this client domain.' });
+    }
+
+    const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
+    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const result = await getDashboardActivityOverview(effectiveClientSlug, territories);
+    return reply.status(result.ok ? 200 : 503).send(result);
   });
 
 

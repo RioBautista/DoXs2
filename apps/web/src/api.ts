@@ -81,6 +81,25 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
 }
 
 
+export type DashboardActivityOverviewResponse = {
+  ok: boolean;
+  clientSlug?: string | null;
+  activityOverview?: DashboardSummary['activityOverview'];
+  message?: string;
+};
+
+export async function getDashboardActivityOverview(): Promise<DashboardActivityOverviewResponse> {
+  const response = await fetchJson(`${API_BASE}/dashboard/activity-overview`, {
+    method: 'GET',
+    credentials: 'include',
+  });
+
+  const data = (await response.json()) as DashboardActivityOverviewResponse;
+  if (!response.ok) return { ok: false, message: data.message ?? 'Activity overview request failed.', activityOverview: null };
+  return data;
+}
+
+
 export type DashboardCallMapResponse = {
   ok: boolean;
   clientSlug?: string | null;

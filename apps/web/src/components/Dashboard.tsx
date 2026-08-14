@@ -15,7 +15,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import { getDashboardCallMap, getDashboardSummary, type DashboardSummary } from '../api';
+import { getDashboardActivityOverview, getDashboardCallMap, getDashboardSummary, type DashboardSummary } from '../api';
 import { ensureFirebaseSession, getClientFirestore } from '../lib/firebase';
 import type { AuthSession } from '../lib/auth';
 
@@ -67,7 +67,7 @@ function formatMapTitleDate(date: string) {
   return new Intl.DateTimeFormat('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
-function CallMap({ summary }: { summary: DashboardSummary | null }) {
+function CallMap({ summary, isLoading }: { summary: DashboardSummary | null; isLoading: boolean }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
@@ -260,6 +260,8 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
             <div ref={containerRef} className="h-full w-full" />
             {mapError ? (
               <div className="absolute inset-0 flex items-center justify-center bg-red-50/95 p-6 text-center text-sm text-red-700">Map could not initialize: {mapError}</div>
+            ) : isLoading ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90 text-center text-sm text-slate-500">Loading call map…</div>
             ) : !nodes.length ? (
               <div className="absolute inset-0 flex items-center justify-center bg-slate-50/90 text-center text-sm text-slate-500">No geotagged calls found for this date.</div>
             ) : null}
@@ -292,7 +294,7 @@ function CallMap({ summary }: { summary: DashboardSummary | null }) {
   );
 }
 
-function ActivityOverviewChart({ summary }: { summary: DashboardSummary | null }) {
+function ActivityOverviewChart({ summary, isLoading }: { summary: DashboardSummary | null; isLoading: boolean }) {
   const points = summary?.activityOverview?.points ?? [];
   const option = {
     color: ['#2563eb', '#10b981'],
@@ -334,6 +336,10 @@ function ActivityOverviewChart({ summary }: { summary: DashboardSummary | null }
     ],
   };
 
+  if (isLoading) {
+    return <div className="flex h-64 items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-500">Loading activity overview…</div>;
+  }
+
   if (!points.length) {
     return <div className="flex h-64 items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-500">Activity series is not available yet.</div>;
   }
@@ -345,6 +351,8 @@ export function Dashboard({ session }: DashboardProps) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [subscriptionStatus, setSubscriptionStatus] = useState<'pending' | 'subscribed' | 'api-only'>('pending');
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [callMapLoading, setCallMapLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -358,6 +366,22 @@ export function Dashboard({ session }: DashboardProps) {
         if (cancelled) return;
         setSummary(result);
 
+        setActivityLoading(true);
+        setCallMapLoading(true);
+
+        void getDashboardActivityOverview()
+          .then((activityResult) => {
+            if (!cancelled && activityResult.ok && activityResult.activityOverview) {
+              setSummary((current) => current ? { ...current, activityOverview: activityResult.activityOverview ?? current.activityOverview ?? null } : result);
+            }
+          })
+          .catch(() => {
+            // Keep metrics visible if the activity query is unavailable.
+          })
+          .finally(() => {
+            if (!cancelled) setActivityLoading(false);
+          });
+
         void getDashboardCallMap()
           .then((mapResult) => {
             if (!cancelled && mapResult.ok && mapResult.callMap) {
@@ -366,6 +390,9 @@ export function Dashboard({ session }: DashboardProps) {
           })
           .catch(() => {
             // Keep metrics visible if the heavy map query is unavailable.
+          })
+          .finally(() => {
+            if (!cancelled) setCallMapLoading(false);
           });
 
         try {
@@ -384,7 +411,8 @@ export function Dashboard({ session }: DashboardProps) {
               const cachedSummary = snapshot.data() as DashboardSummary;
               setSummary((current) => ({
                 ...cachedSummary,
-                callMap: cachedSummary.callMap ?? current?.callMap ?? result.callMap ?? null,
+                activityOverview: current?.activityOverview ?? result.activityOverview ?? null,
+                callMap: current?.callMap ?? result.callMap ?? null,
               }));
               setSubscriptionStatus('subscribed');
             },
@@ -399,6 +427,8 @@ export function Dashboard({ session }: DashboardProps) {
         if (!cancelled) {
           setSummary(null);
           setSubscriptionStatus('api-only');
+          setActivityLoading(false);
+          setCallMapLoading(false);
         }
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -449,10 +479,10 @@ export function Dashboard({ session }: DashboardProps) {
               </div>
               <BarChart3 className="h-5 w-5 text-slate-400" />
             </div>
-            <ActivityOverviewChart summary={summary} />
+            <ActivityOverviewChart summary={summary} isLoading={activityLoading} />
           </div>
 
-          <CallMap summary={summary} />
+          <CallMap summary={summary} isLoading={callMapLoading} />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">

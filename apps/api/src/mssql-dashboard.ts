@@ -636,6 +636,35 @@ async function getActivityOverview(pool: sql.ConnectionPool, territories: string
 }
 
 
+
+export async function getDashboardActivityOverview(clientSlug?: string | null, territories: string[] = []) {
+  const config = getClientMSSQLConfig(clientSlug);
+  if (!config) {
+    return { ok: false, clientSlug, activityOverview: null, message: 'MSSQL dashboard data source is not configured for this client yet.' };
+  }
+
+  let pool: sql.ConnectionPool | null = null;
+  try {
+    pool = await connectClientMSSQL(config);
+    const activityOverview = await getActivityOverview(pool, territories);
+    return {
+      ok: true,
+      clientSlug: config.clientSlug,
+      activityOverview,
+      message: territories.length > 0 ? 'Live MSSQL activity overview loaded with territory scope.' : 'Live MSSQL activity overview loaded.',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      clientSlug: config.clientSlug,
+      activityOverview: null,
+      message: error instanceof Error ? `MSSQL activity overview temporarily unavailable: ${error.message}` : 'MSSQL activity overview temporarily unavailable.',
+    };
+  } finally {
+    if (pool) await pool.close();
+  }
+}
+
 export async function getDashboardCallMap(clientSlug?: string | null, territories: string[] = []) {
   const config = getClientMSSQLConfig(clientSlug);
   if (!config) {
@@ -693,13 +722,11 @@ export async function getDashboardSummary(clientSlug?: string | null, territorie
     const hasVisitDate = hasItinerary && await columnExists(pool, 'dbo', 'ITINERARY', 'VISIT_DATE');
     const hasDoctorId = hasItinerary && await columnExists(pool, 'dbo', 'ITINERARY', 'MD_ID');
 
-    const [targetCalls, actualCalls, doctorsReached, doctorsPlanned, activityOverview, callMap] = await Promise.all([
+    const [targetCalls, actualCalls, doctorsReached, doctorsPlanned] = await Promise.all([
       hasItineraryDate ? countItineraryRowsMonthToDate(pool, 'ITINERARY_DATE', territories) : Promise.resolve(null),
       hasVisitDate ? countItineraryRowsMonthToDate(pool, 'VISIT_DATE', territories) : Promise.resolve(null),
       hasVisitDate && hasDoctorId ? countDistinctItineraryDoctorsMonthToDate(pool, 'VISIT_DATE', territories) : Promise.resolve(null),
       hasItineraryDate && hasDoctorId ? countDistinctItineraryDoctorsMonthToDate(pool, 'ITINERARY_DATE', territories) : Promise.resolve(null),
-      getActivityOverview(pool, territories),
-      getCycleCallMap(pool, territories),
     ]);
     const callRate = targetCalls && targetCalls > 0 && actualCalls !== null ? Number(((actualCalls / targetCalls) * 100).toFixed(1)) : null;
     const doctorsReachedRate = doctorsPlanned && doctorsPlanned > 0 && doctorsReached !== null ? Number(((doctorsReached / doctorsPlanned) * 100).toFixed(1)) : null;
@@ -716,8 +743,8 @@ export async function getDashboardSummary(clientSlug?: string | null, territorie
         doctorsPlanned,
         doctorsReachedRate,
       },
-      activityOverview,
-      callMap,
+      activityOverview: null,
+      callMap: null,
       message: territories.length > 0 ? 'Live read-only MSSQL dashboard metrics loaded with territory scope.' : 'Live read-only MSSQL dashboard metrics loaded.',
     };
   } catch (error) {
