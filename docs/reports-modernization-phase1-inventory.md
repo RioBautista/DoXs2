@@ -222,45 +222,152 @@ Examples:
 
 Migration priority: Low until a user requests a specific report.
 
-## Recommended migration order
+## Global vs client-custom report strategy
 
-### Pilot 1: Monthly Calls Per Doctor
+DoXs2 should support two classes of reports:
 
-Why first:
+### Global/core reports
 
-- Business meaning is clear.
-- Already represented in `seeds/reportDefinitions/monthly-calls-per-doctor.json`.
-- Uses doctor/territory/call data aligned with current dashboard rules.
-- Good validation target for territory scope, date filters, dynamic columns, and generic table rendering.
+Global reports are shared iDoXs business reports that should work across clients when the required legacy tables/columns exist. These should be prioritized first because they define the reusable report engine pattern.
 
-Validation goal:
+Examples:
 
-- Confirm numbers against legacy for one client/user/date range.
+- Call Reach Report
+- Daily Coverage Report
+- Performance Report
+- Doctor/call coverage summaries
+- Login/activity reports, once auth/audit rules are stable
 
-### Pilot 2: Sales Order ETR Detail
+### Client-custom reports
 
-Why second:
+Client-custom reports are reports that exist because of a specific client workflow, custom table/view, special export, or operational process. These should be supported by the same report engine, but not used as the first proof of the global pattern.
 
-- Operationally important for Oxford.
-- We already have strong context from recent ETR fixes.
-- Good test of a more complex report with many fields and potential export needs.
+Examples:
 
-Validation goal:
+- Oxford Sales Order / ETR reports
+- client-specific Excel/download flows
+- client-specific product/customer/order reports
 
-- Match legacy table output first.
-- Add Excel/download parity after correctness is confirmed.
+Oxford ETR remains important, but it should move to the custom-report lane after the global report engine is validated.
 
-### Pilot 3: Territory / Doctor Coverage Summary
+## Validated first report batch
 
-Why third:
+Boss Rio validated that the first three report pilots should be global/core reports:
 
-- Supports managers.
-- Bridges Reports and Doctors/TML.
-- Helps define reusable doctor universe / reach / coverage formulas.
+1. Call Reach Report
+2. Daily Coverage Report
+3. Performance Report
 
-Validation goal:
+### Pilot 1: Call Reach Report
 
-- Confirm territory-scope behavior and doctor counts with business users.
+Representative legacy file:
+
+- `rptCallReachPerFrequency.php`
+
+Legacy title observed:
+
+- `Call Reach by Frequency`
+
+Business purpose:
+
+- Show how many doctors were reached versus the doctor universe, grouped by frequency and organizational scope.
+- Help managers evaluate reach against expected call frequency.
+
+Observed legacy grouping:
+
+- Region
+- District
+- Territory
+- Frequency
+
+Observed legacy measures:
+
+- Doctor Count
+- Visited
+- Percentage = `Visited / Doctor Count * 100`
+
+Initial DoXs2 report goal:
+
+- Table output first.
+- Date/cycle filters.
+- Territory scope enforcement.
+- Group by region/district/territory/frequency where source fields exist.
+- Validate counts against one known legacy output before broad rollout.
+
+### Pilot 2: Daily Coverage Report
+
+Representative legacy file:
+
+- `rptDailyCoverageReport.php`
+
+Business purpose:
+
+- Show daily planned/covered activity by organizational scope.
+- Support field execution review and daily coverage validation.
+
+Observed legacy grouping:
+
+- Region
+- District
+- Territory
+
+Initial DoXs2 report goal:
+
+- Table output first.
+- Date filter or date range depending on business validation.
+- Territory scope enforcement.
+- Show daily planned/actual/coverage fields once the exact legacy column meanings are confirmed.
+
+### Pilot 3: Performance Report
+
+Representative legacy file:
+
+- `rptPerformanceReport.php`
+
+Business purpose:
+
+- Show planned vs actual performance for the current cycle/period.
+- Provide manager-level performance review by region, district, and territory.
+
+Observed legacy grouping:
+
+- Region
+- District
+- Territory
+
+Observed legacy measures/formula:
+
+- Planned
+- Actual
+- Acceptable
+- Performance = `Actual / (Planned - Acceptable) * 100`
+
+Initial DoXs2 report goal:
+
+- Table output first.
+- Cycle/period filters.
+- Territory scope enforcement.
+- Preserve the legacy business formula unless Boss Rio/team approves a revised formula.
+
+## Updated migration order
+
+1. Implement global report definition support for Call Reach Report.
+2. Validate Call Reach against legacy output.
+3. Implement Daily Coverage Report using the same engine.
+4. Validate Daily Coverage against legacy output.
+5. Implement Performance Report using the same engine.
+6. Validate Performance against legacy output.
+7. After the global pattern is stable, add client-custom report support and revisit Oxford ETR.
+
+## Reports deliberately deferred
+
+### Oxford Sales Order / ETR
+
+Deferred from the first batch because these are mostly Oxford-specific reports. They remain useful, but they should be implemented as client-custom report definitions after the global report system is proven.
+
+### Monthly Calls Per Doctor
+
+Deferred from the first batch. It remains a good report-engine example and seed, but Boss Rio selected Call Reach, Daily Coverage, and Performance as the first validation targets.
 
 ## Technical implications for Phase 2
 
