@@ -343,12 +343,29 @@ function timeLabel(value: Date | string) {
   return new Intl.DateTimeFormat('en-PH', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Manila' }).format(date);
 }
 
+function sqlWallTimeLabel(value: string | null | undefined, fallback: Date | string) {
+  if (value) {
+    const match = /^(\d{1,2}):(\d{2})/.exec(value.trim());
+    if (match) {
+      const hour24 = Number(match[1]);
+      const minute = Number(match[2]);
+      if (Number.isInteger(hour24) && Number.isInteger(minute) && hour24 >= 0 && hour24 <= 23 && minute >= 0 && minute <= 59) {
+        const hour12 = hour24 % 12 || 12;
+        const suffix = hour24 < 12 ? 'AM' : 'PM';
+        return `${hour12.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')} ${suffix}`;
+      }
+    }
+  }
+  return timeLabel(fallback);
+}
+
 function buildCallMapDay(date: string, period: { periodKey: string; startDate: string; endDate: string }, rows: Array<{
   md_id: string | null;
   doctor_name: string | null;
   psr_id: string | null;
   territory_id: string | null;
   visit_date: Date | string;
+  visit_time: string | null;
   latitude: string | null;
   longitude: string | null;
   address: string | null;
@@ -383,7 +400,7 @@ function buildCallMapDay(date: string, period: { periodKey: string; startDate: s
         psrId: row.psr_id ?? 'unknown',
         territoryId,
         visitDate: row.visit_date instanceof Date ? row.visit_date.toISOString() : new Date(row.visit_date).toISOString(),
-        timeLabel: timeLabel(row.visit_date),
+        timeLabel: sqlWallTimeLabel(row.visit_time, row.visit_date),
         address: row.address || 'Address not available',
         latitude: hasGps ? latitude : null,
         longitude: hasGps ? longitude : null,
@@ -491,6 +508,7 @@ async function getCycleCallMap(pool: sql.ConnectionPool, territories: string[] =
     psr_id: string | null;
     territory_id: string | null;
     visit_date: Date | string;
+    visit_time: string | null;
     latitude: string | null;
     longitude: string | null;
     address: string | null;
@@ -504,6 +522,7 @@ async function getCycleCallMap(pool: sql.ConnectionPool, territories: string[] =
       ltrim(rtrim(cast(i.[PSR_ID] as varchar(128)))) as psr_id,
       ltrim(rtrim(cast(i.[TERRITORY_ID] as varchar(128)))) as territory_id,
       i.[VISIT_DATE] as visit_date,
+      convert(varchar(8), try_convert(time, i.[VISIT_DATE]), 108) as visit_time,
       i.[latitude] as latitude,
       i.[longitude] as longitude,
       nullif(ltrim(rtrim(cast(dc.[CLINIC_ADDRESS] as varchar(512)))), '') as address,
