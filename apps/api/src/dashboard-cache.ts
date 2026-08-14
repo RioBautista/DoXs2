@@ -11,6 +11,19 @@ function stableHash(value: unknown) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
 }
 
+
+function withoutUndefined<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => withoutUndefined(item)) as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, withoutUndefined(item)]),
+    ) as T;
+  }
+  return value;
+}
+
 function sanitizePathSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown';
 }
@@ -38,6 +51,40 @@ export function resolveDashboardScope(session: SessionPayload, clientSlug?: stri
   const cachePath = `iDoXs_Clients/${clientId}/scopeCaches/${scopeHash}/viewCaches/${VIEW_KEY}`;
 
   return { clientId, userId, territories, roles, periodKey, scopeHash, scopeKey, cachePath };
+}
+
+
+export async function readFreshDashboardCache(scope: DashboardScope): Promise<DashboardCacheDocument | null> {
+  const snapshot = await getAdminFirestore().doc(scope.cachePath).get();
+  if (!snapshot.exists) return null;
+
+  const data = snapshot.data() as (DashboardCacheDocument & {
+    stale?: boolean;
+    staleReason?: string | null;
+    staleDetectedAt?: string | null;
+    cache?: DashboardCacheDocument['cache'] & { stale?: boolean; staleReason?: string | null; staleDetectedAt?: string | null };
+  }) | undefined;
+  if (!data) return null;
+  if (data.stale || data.cache?.stale) return null;
+  if (!data.expiresAt || Date.parse(data.expiresAt) <= Date.now()) return null;
+
+  return {
+    ...data,
+    cache: {
+      ...(data.cache ?? {
+        cachePath: scope.cachePath,
+        scopeHash: scope.scopeHash,
+        scopeKey: scope.scopeKey,
+        viewKey: VIEW_KEY,
+        periodKey: scope.periodKey,
+        businessRulesVersion: BUSINESS_RULES_VERSION,
+        generatedAt: data.generatedAt,
+        expiresAt: data.expiresAt,
+        source: 'firestore-cache' as const,
+      }),
+      source: 'firestore-cache' as const,
+    },
+  };
 }
 
 export async function writeDashboardCache(summary: DashboardSummary, scope: DashboardScope, options: { sourceWatermark?: string | null } = {}): Promise<DashboardCacheDocument> {
@@ -80,6 +127,7 @@ export async function writeDashboardCache(summary: DashboardSummary, scope: Dash
     },
   };
 
-  await getAdminFirestore().doc(scope.cachePath).set(doc, { merge: true });
-  return doc;
+  const sanitizedDoc = withoutUndefined(doc);
+  await getAdminFirestore().doc(scope.cachePath).set(sanitizedDoc, { merge: true });
+  return sanitizedDoc;
 }

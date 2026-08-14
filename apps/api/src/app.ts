@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import { authenticateUser, loginRequestSchema } from './auth.js';
 import { checkDrupalMySQLConnection, debugDrupalMySQLAuth, debugDrupalMySQLUsersQuery } from './drupal-mysql-auth.js';
 import { clearSessionCookie, createSessionToken, getSessionCookieDiagnostics, getSessionFromRequest, setSessionCookie } from './session.js';
-import { resolveDashboardScope, writeDashboardCache } from './dashboard-cache.js';
+import { readFreshDashboardCache, resolveDashboardScope, writeDashboardCache } from './dashboard-cache.js';
 import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
 import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
 import { listReportDefinitions, runReportDefinition } from './report-engine.js';
@@ -129,8 +129,16 @@ export function buildApp() {
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
     const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
-    const summary = await getDashboardSummary(effectiveClientSlug, territories);
     const scope = resolveDashboardScope(session, effectiveClientSlug, territories);
+
+    try {
+      const cachedSummary = await readFreshDashboardCache(scope);
+      if (cachedSummary) return reply.status(200).send(cachedSummary);
+    } catch (error) {
+      request.log.warn({ error, cachePath: scope.cachePath }, 'Failed to read dashboard Firestore cache; falling back to MSSQL refresh.');
+    }
+
+    const summary = await getDashboardSummary(effectiveClientSlug, territories);
     try {
       const cachedSummary = await writeDashboardCache(summary, scope);
       return reply.status(200).send(cachedSummary);
