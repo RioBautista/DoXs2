@@ -14,6 +14,7 @@ export type DoctorDirectoryRow = {
   specialtyCode: string | null;
   classCode: string | null;
   frequency: number | null;
+  visitDays: [number | null, number | null, number | null, number | null, number | null];
   clinicAddress: string | null;
 };
 

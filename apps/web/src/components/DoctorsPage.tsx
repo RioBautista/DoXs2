@@ -4,6 +4,12 @@ import { getDoctors, type DoctorDirectoryRow } from '../api';
 
 type DoctorsPageProps = { clientName: string };
 const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+const weekLabels = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'];
+const dayLabels: Record<number, string> = { 1: 'M', 2: 'Tu', 3: 'W', 4: 'Th', 5: 'F' };
+
+function plannedVisitCount(doctor: DoctorDirectoryRow) {
+  return doctor.visitDays.filter((day) => day !== null).length;
+}
 
 export function DoctorsPage({ clientName }: DoctorsPageProps) {
   const initial = new URLSearchParams(window.location.search);
@@ -67,6 +73,11 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
     }
   }
 
+  const dayTotals = weekLabels.map((_, weekIndex) => [1, 2, 3, 4, 5].map(
+    (day) => doctors.filter((doctor) => doctor.visitDays[weekIndex] === day).length,
+  ));
+  const grandTotal = doctors.reduce((total, doctor) => total + plannedVisitCount(doctor), 0);
+
   return (
     <div className="space-y-5">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -97,14 +108,44 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
           <span>{territoryCount ? `${territoryCount} territories in scope` : 'Manager/global scope'}</span>
         </div>
         {!isLoading && !doctors.length && !error ? <div className="p-10 text-center text-sm text-slate-500">No doctors match this filter.</div> : null}
-        <div className="divide-y divide-slate-100">
-          {doctors.map((doctor) => (
-            <article key={`${doctor.doctorId}:${doctor.territoryId}`} className="grid gap-3 px-5 py-4 hover:bg-slate-50 md:grid-cols-[minmax(15rem,1.5fr)_minmax(8rem,.7fr)_minmax(12rem,1fr)]">
-              <div><p className="font-semibold text-slate-950">{doctor.displayName || doctor.doctorId}</p><p className="mt-1 text-xs text-slate-500">MD ID {doctor.doctorId}</p></div>
-              <div className="text-sm"><p className="font-medium text-slate-700">{doctor.territoryId}</p><p className="mt-1 text-xs text-slate-500">{[doctor.specialtyCode, doctor.classCode && `Class ${doctor.classCode}`, doctor.frequency && `${doctor.frequency}×`].filter(Boolean).join(' · ') || 'No classification'}</p></div>
-              <p className="text-sm leading-6 text-slate-600">{doctor.clinicAddress ?? 'Clinic address not available'}</p>
-            </article>
-          ))}
+        <div className="overflow-x-auto">
+          <div className="min-w-[920px]">
+            <div className="sticky top-0 z-10 grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] border-b border-slate-300 bg-white text-xs font-semibold text-slate-700">
+              <div className="flex items-end px-4 py-3">Doctor / Territory</div>
+              <div className="flex items-end justify-center border-l border-slate-200 px-2 py-3">Frequency</div>
+              {weekLabels.map((week, weekIndex) => (
+                <div key={week} className={`border-l border-slate-300 ${weekIndex % 2 ? 'bg-indigo-100' : 'bg-blue-50'}`}>
+                  <div className="border-b border-slate-300 px-2 py-1.5 text-center">{week}</div>
+                  <div className="grid grid-cols-5 text-[10px] font-medium text-slate-500">
+                    {['M', 'Tu', 'W', 'Th', 'F'].map((day, dayIndex) => <div key={day} className="border-l border-slate-200 px-1 py-1 text-center first:border-l-0">{day}<span className="ml-1 font-bold text-slate-700">{dayTotals[weekIndex][dayIndex]}</span></div>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="divide-y divide-slate-100">
+              {doctors.map((doctor) => {
+                const planned = plannedVisitCount(doctor);
+                const mismatch = doctor.frequency !== null && doctor.frequency !== planned;
+                return (
+                  <article key={`${doctor.doctorId}:${doctor.territoryId}`} className="grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] hover:bg-slate-50">
+                    <div className="min-w-0 px-4 py-2.5">
+                      <p className="truncate text-sm font-semibold text-slate-950">{doctor.displayName || doctor.doctorId}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-slate-500">{doctor.doctorId} · {doctor.territoryId} · {[doctor.specialtyCode, doctor.classCode && `Class ${doctor.classCode}`].filter(Boolean).join(' · ') || 'No classification'}</p>
+                    </div>
+                    <div className="flex items-center justify-center border-l border-slate-200 px-2 py-2">
+                      <span title={mismatch ? `${planned} planned visits do not match ${doctor.frequency}× frequency` : undefined} className={`rounded-md px-2 py-1 text-xs font-bold ${mismatch ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{doctor.frequency ?? '—'}×</span>
+                    </div>
+                    {doctor.visitDays.map((day, weekIndex) => (
+                      <div key={weekIndex} className={`flex items-center justify-center border-l border-slate-200 px-2 py-2 ${weekIndex % 2 ? 'bg-indigo-50/70' : 'bg-blue-50/60'}`}>
+                        <span className={`flex h-7 min-w-9 items-center justify-center rounded-full px-2 text-xs font-bold ${day ? 'bg-brand-600 text-white shadow-sm' : 'border border-dashed border-slate-300 text-slate-300'}`}>{day ? dayLabels[day] : '—'}</span>
+                      </div>
+                    ))}
+                  </article>
+                );
+              })}
+            </div>
+            {doctors.length ? <div className="grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] border-t border-slate-300 bg-slate-50 text-xs font-bold text-slate-700"><div className="px-4 py-2 text-right">Loaded-plan total</div><div className="border-l border-slate-200 px-2 py-2 text-center">{grandTotal}</div>{weekLabels.map((week, index) => <div key={week} className="border-l border-slate-200 px-2 py-2 text-center">{dayTotals[index].reduce((sum, count) => sum + count, 0)}</div>)}</div> : null}
+          </div>
         </div>
         {hasMore ? <div className="border-t border-slate-200 p-4 text-center"><button type="button" onClick={() => void loadMore()} disabled={isLoadingMore} className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{isLoadingMore ? 'Loading…' : 'Load more doctors'}</button></div> : null}
       </section>
