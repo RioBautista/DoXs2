@@ -136,8 +136,12 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
                       <span title={mismatch ? `${planned} planned visits do not match ${doctor.frequency}× frequency` : undefined} className={`rounded-md px-2 py-1 text-xs font-bold ${mismatch ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{doctor.frequency ?? '—'}×</span>
                     </div>
                     {doctor.visitDays.map((day, weekIndex) => (
-                      <div key={weekIndex} className={`flex items-center justify-center border-l border-slate-200 px-2 py-2 ${weekIndex % 2 ? 'bg-indigo-50/70' : 'bg-blue-50/60'}`}>
-                        <span className={`flex h-7 min-w-9 items-center justify-center rounded-full px-2 text-xs font-bold ${day ? 'bg-brand-600 text-white shadow-sm' : 'border border-dashed border-slate-300 text-slate-300'}`}>{day ? dayLabels[day] : '—'}</span>
+                      <div key={weekIndex} className={`grid grid-cols-5 border-l border-slate-300 ${weekIndex % 2 ? 'bg-indigo-50/70' : 'bg-blue-50/60'}`}>
+                        {[1, 2, 3, 4, 5].map((dayNumber) => (
+                          <div key={dayNumber} className={`flex min-h-11 items-center justify-center border-l border-slate-200 text-[11px] font-bold first:border-l-0 ${day === dayNumber ? 'bg-brand-600 text-white' : 'text-transparent'}`}>
+                            {day === dayNumber ? dayLabels[dayNumber] : '·'}
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </article>
