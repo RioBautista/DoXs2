@@ -512,7 +512,7 @@ function buildCallMapDay(date: string, period: { periodKey: string; startDate: s
   return { date, territories, calls, nodes, sequences };
 }
 
-async function getCycleCallMap(pool: sql.ConnectionPool, territories: string[] = []) {
+async function getCycleCallMap(pool: sql.ConnectionPool, territories: string[] = [], requestedDate?: string | null) {
   const hasItinerary = await tableExists(pool, 'dbo', 'ITINERARY');
   const required = ['VISIT_DATE', 'MD_ID', 'PSR_ID', 'TERRITORY_ID'];
   for (const column of required) {
@@ -521,11 +521,14 @@ async function getCycleCallMap(pool: sql.ConnectionPool, territories: string[] =
 
   const period = await getCurrentCyclePeriod(pool);
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-  const selectedDate = today >= period.startDate && today <= period.endDate ? today : period.startDate;
+  const requestedDateInCycle = requestedDate && requestedDate >= period.startDate && requestedDate <= period.endDate ? requestedDate : null;
+  const selectedDate = requestedDateInCycle ?? (today >= period.startDate && today <= period.endDate ? today : period.startDate);
+  const queryStartDate = requestedDateInCycle ?? period.startDate;
+  const queryEndDate = requestedDateInCycle ?? period.endDate;
   const scope = normalizedTerritories(territories);
   const request = pool.request()
-    .input('startDate', sql.Date, period.startDate)
-    .input('endDateExclusive', sql.Date, new Date(new Date(`${period.endDate}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000));
+    .input('startDate', sql.Date, queryStartDate)
+    .input('endDateExclusive', sql.Date, new Date(new Date(`${queryEndDate}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000));
   addTerritoryInputs(request, scope);
   const territoryFilter = territoryPredicate(scope, 'TERRITORY_ID');
   const result = await request.query<{
@@ -575,9 +578,10 @@ async function getCycleCallMap(pool: sql.ConnectionPool, territories: string[] =
   }
 
   const days: Record<string, ReturnType<typeof buildCallMapDay>> = {};
-  for (const date of enumerateDates(period.startDate, period.endDate)) {
+  const datesToBuild = requestedDateInCycle ? [selectedDate] : enumerateDates(period.startDate, period.endDate);
+  for (const date of datesToBuild) {
     const rows = rowsByDate.get(date) ?? [];
-    if (rows.length || date === selectedDate) days[date] = buildCallMapDay(date, period, rows, scope);
+    if (requestedDateInCycle || rows.length || date === selectedDate) days[date] = buildCallMapDay(date, period, rows, scope);
   }
   const selectedDay = days[selectedDate] ?? buildCallMapDay(selectedDate, period, [], scope);
 
@@ -739,7 +743,7 @@ export async function getDashboardActivityOverview(clientSlug?: string | null, t
   }
 }
 
-export async function getDashboardCallMap(clientSlug?: string | null, territories: string[] = []) {
+export async function getDashboardCallMap(clientSlug?: string | null, territories: string[] = [], date?: string | null) {
   const config = getClientMSSQLConfig(clientSlug);
   if (!config) {
     return { ok: false, clientSlug, callMap: null, message: 'MSSQL dashboard data source is not configured for this client yet.' };
@@ -748,7 +752,7 @@ export async function getDashboardCallMap(clientSlug?: string | null, territorie
   let pool: sql.ConnectionPool | null = null;
   try {
     pool = await connectClientMSSQL(config);
-    const callMap = await getCycleCallMap(pool, territories);
+    const callMap = await getCycleCallMap(pool, territories, date);
     return {
       ok: true,
       clientSlug: config.clientSlug,

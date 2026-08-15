@@ -3,11 +3,21 @@ import { getAdminFirestore } from './firestore-admin.js';
 import { getDashboardCallMap } from './mssql-dashboard.js';
 
 const CALL_MAP_TTL_MS = Number(process.env.DASHBOARD_CALL_MAP_TTL_MS ?? 24 * 60 * 60 * 1000);
+const CALL_MAP_TODAY_TTL_MS = Number(process.env.DASHBOARD_CALL_MAP_TODAY_TTL_MS ?? 5 * 60 * 1000);
 const BUSINESS_RULES_VERSION = '1';
 
 function sanitizePathSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown';
 }
+
+function manilaToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+}
+
+function isCurrentManilaDate(date: string) {
+  return date === manilaToday();
+}
+
 
 type FirestoreSequence = Omit<DashboardCallMapSequence, 'coordinates'> & {
   coordinates: Array<{ longitude: number; latitude: number }>;
@@ -136,12 +146,14 @@ async function readFreshTerritoryDate(clientSlug: string, territoryId: string, d
   if (!snapshot.exists) return null;
   const data = snapshot.data();
   if (!data?.expiresAt) return null;
+  if (isCurrentManilaDate(date) && Date.parse(String(data.expiresAt)) <= Date.now()) return null;
   return normalizeCachedDoc(data, cachePath);
 }
 
 async function writeTerritoryDate(clientSlug: string, territoryId: string, cycle: DashboardCallMap['cycle'], day: DashboardCallMapDay) {
   const generatedAt = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + CALL_MAP_TTL_MS).toISOString();
+  const ttlMs = isCurrentManilaDate(day.date) ? CALL_MAP_TODAY_TTL_MS : CALL_MAP_TTL_MS;
+  const expiresAt = new Date(Date.now() + ttlMs).toISOString();
   const cachePath = callMapDatePath(clientSlug, territoryId, day.date);
   const doc = firestoreSafe({
     ok: true,
@@ -187,14 +199,13 @@ export async function getCallMapTerritoryDate(clientSlug: string, territoryId: s
   const cached = await readFreshTerritoryDate(clientSlug, territoryId, date);
   if (cached) return cached;
 
-  const result = await getDashboardCallMap(clientSlug, [territoryId]);
+  const result = await getDashboardCallMap(clientSlug, [territoryId], date);
   if (!result.ok || !result.callMap) {
     throw new Error(result.message ?? 'Call map is unavailable for this territory.');
   }
 
-  const writes = await Promise.all(Object.values(result.callMap.days).map((day) => writeTerritoryDate(clientSlug, territoryId, result.callMap!.cycle, day)));
-  const selected = writes.find((doc) => doc.date === date);
-  if (selected) return selected;
+  const selectedDay = result.callMap.days[date];
+  if (selectedDay) return writeTerritoryDate(clientSlug, territoryId, result.callMap.cycle, selectedDay);
 
   return writeTerritoryDate(clientSlug, territoryId, result.callMap.cycle, emptyTerritoryDay(date, territoryId));
 }
