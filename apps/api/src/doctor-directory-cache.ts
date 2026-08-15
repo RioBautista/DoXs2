@@ -3,21 +3,30 @@ import type { DoctorDirectoryResponse, DoctorDirectoryRow } from '@doxs/shared';
 import { getAdminFirestore } from './firestore-admin.js';
 import { listDoctors } from './doctor-directory.js';
 
-const PAGE_SIZE = 100;
+const MSSQL_PAGE_SIZE = 100;
 const CACHE_TTL_MS = Number(process.env.DOCTOR_DIRECTORY_CACHE_TTL_MS ?? 24 * 60 * 60 * 1000);
 
 type Totals = NonNullable<DoctorDirectoryResponse['totals']>;
-type MetaDocument = {
-  territoryId: string;
-  doctorCount: number;
-  pageCount: number;
-  totals: Totals;
+type StoredWeekSummary = {
+  monday: number;
+  tuesday: number;
+  wednesday: number;
+  thursday: number;
+  friday: number;
+  total: number;
+};
+type StoredCacheDocument = {
+  territory: {
+    id: string;
+    summaries: {
+      doctorCount: number;
+      grandTotal: number;
+      weeks: Record<string, StoredWeekSummary>;
+    };
+  };
+  doctors: DoctorDirectoryRow[];
   generatedAt: string;
   expiresAt: string;
-};
-
-type StoredMetaDocument = Omit<MetaDocument, 'totals'> & {
-  totals: Omit<Totals, 'byWeekDay'> & { byWeekDayFlat: number[] };
 };
 
 function pathSegment(value: string) {
@@ -42,41 +51,61 @@ function totalsFor(rows: DoctorDirectoryRow[]): Totals {
   return { byWeekDay, byWeek: byWeekDay.map((days) => days.reduce((sum, count) => sum + count, 0)), grandTotal, doctorCount: rows.length };
 }
 
-function storeMeta(meta: MetaDocument): StoredMetaDocument {
-  const { byWeekDay, ...totals } = meta.totals;
-  return { ...meta, totals: { ...totals, byWeekDayFlat: byWeekDay.flat() } };
+function storeSummaries(totals: Totals): StoredCacheDocument['territory']['summaries'] {
+  const weeks = Object.fromEntries(totals.byWeekDay.map((days, index) => [`week${index + 1}`, {
+    monday: days[0] ?? 0,
+    tuesday: days[1] ?? 0,
+    wednesday: days[2] ?? 0,
+    thursday: days[3] ?? 0,
+    friday: days[4] ?? 0,
+    total: totals.byWeek[index] ?? 0,
+  }]));
+  return { doctorCount: totals.doctorCount, grandTotal: totals.grandTotal, weeks };
 }
 
-function restoreMeta(meta: StoredMetaDocument): MetaDocument | null {
-  const flat = meta.totals?.byWeekDayFlat;
-  if (!Array.isArray(flat) || flat.length !== 25) return null;
-  const byWeekDay = Array.from({ length: 5 }, (_, weekIndex) => flat.slice(weekIndex * 5, weekIndex * 5 + 5));
-  const { byWeekDayFlat: _flat, ...totals } = meta.totals;
-  return { ...meta, totals: { ...totals, byWeekDay } };
+function restoreTotals(summaries: StoredCacheDocument['territory']['summaries']): Totals | null {
+  if (!summaries?.weeks) return null;
+  const byWeekDay = Array.from({ length: 5 }, (_, index) => {
+    const week = summaries.weeks[`week${index + 1}`];
+    return week ? [week.monday, week.tuesday, week.wednesday, week.thursday, week.friday].map((value) => Number(value ?? 0)) : [0, 0, 0, 0, 0];
+  });
+  return {
+    byWeekDay,
+    byWeek: byWeekDay.map((days) => days.reduce((sum, count) => sum + count, 0)),
+    grandTotal: Number(summaries.grandTotal ?? 0),
+    doctorCount: Number(summaries.doctorCount ?? 0),
+  };
 }
 
 async function readCachedRows(clientSlug: string | null, territoryId: string) {
-  const db = getAdminFirestore();
-  const path = directoryPath(clientSlug, territoryId);
-  const metaSnapshot = await db.doc(path).get();
-  if (!metaSnapshot.exists) return null;
-  const meta = restoreMeta(metaSnapshot.data() as StoredMetaDocument);
-  if (!meta) return null;
-  if (!meta.expiresAt || Date.parse(meta.expiresAt) <= Date.now()) return null;
-  const pages = await Promise.all(Array.from({ length: meta.pageCount }, (_, index) => db.doc(`${path}/pages/${String(index + 1).padStart(4, '0')}`).get()));
-  if (pages.some((page) => !page.exists)) return null;
-  return { meta, rows: pages.flatMap((page) => (page.data()?.rows ?? []) as DoctorDirectoryRow[]) };
+  const snapshot = await getAdminFirestore().doc(directoryPath(clientSlug, territoryId)).get();
+  if (!snapshot.exists) return null;
+  const doc = snapshot.data() as StoredCacheDocument;
+  if (!doc.expiresAt || Date.parse(doc.expiresAt) <= Date.now() || !Array.isArray(doc.doctors)) return null;
+  const totals = restoreTotals(doc.territory?.summaries);
+  if (!totals) return null;
+  return { rows: doc.doctors, totals, generatedAt: doc.generatedAt };
 }
 
 async function loadRowsFromMssql(clientSlug: string | null, territoryId: string) {
   const rows: DoctorDirectoryRow[] = [];
   let cursor: string | undefined;
   do {
-    const result = await listDoctors(clientSlug, [territoryId], { territory: territoryId, limit: PAGE_SIZE, cursor });
+    const result = await listDoctors(clientSlug, [territoryId], { territory: territoryId, limit: MSSQL_PAGE_SIZE, cursor });
     rows.push(...result.doctors);
     cursor = result.nextCursor ?? undefined;
   } while (cursor);
   return rows;
+}
+
+async function removeLegacyPages(path: string) {
+  const db = getAdminFirestore();
+  const refs = await db.collection(`${path}/pages`).listDocuments();
+  for (let offset = 0; offset < refs.length; offset += 500) {
+    const batch = db.batch();
+    refs.slice(offset, offset + 500).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
 }
 
 async function writeCache(clientSlug: string | null, territoryId: string, rows: DoctorDirectoryRow[]) {
@@ -84,16 +113,16 @@ async function writeCache(clientSlug: string | null, territoryId: string, rows: 
   const path = directoryPath(clientSlug, territoryId);
   const generatedAt = new Date().toISOString();
   const expiresAt = new Date(Date.now() + CACHE_TTL_MS).toISOString();
-  const pageCount = Math.ceil(rows.length / PAGE_SIZE);
-  await Promise.all(Array.from({ length: pageCount }, (_, index) => db.doc(`${path}/pages/${String(index + 1).padStart(4, '0')}`).set({
-    territoryId,
-    page: index + 1,
-    rows: rows.slice(index * PAGE_SIZE, (index + 1) * PAGE_SIZE),
+  const totals = totalsFor(rows);
+  const doc: StoredCacheDocument = {
+    territory: { id: territoryId, summaries: storeSummaries(totals) },
+    doctors: rows,
     generatedAt,
-  })));
-  const meta: MetaDocument = { territoryId, doctorCount: rows.length, pageCount, totals: totalsFor(rows), generatedAt, expiresAt };
-  await db.doc(path).set(storeMeta(meta));
-  return meta;
+    expiresAt,
+  };
+  await db.doc(path).set(doc);
+  await removeLegacyPages(path);
+  return { rows, totals, generatedAt };
 }
 
 function cursorFor(offset: number, letter: string, search: string) {
@@ -117,9 +146,7 @@ export async function getDoctorTerritoryDirectory(clientSlug: string | null, ter
   let source: DoctorDirectoryResponse['source'] = 'firestore-cache';
   if (!cached) {
     source = 'mssql';
-    const rows = await loadRowsFromMssql(clientSlug, territoryId);
-    const meta = await writeCache(clientSlug, territoryId, rows);
-    cached = { rows, meta };
+    cached = await writeCache(clientSlug, territoryId, await loadRowsFromMssql(clientSlug, territoryId));
   }
 
   const letter = (query.letter ?? '').toUpperCase();
@@ -138,10 +165,10 @@ export async function getDoctorTerritoryDirectory(clientSlug: string | null, ter
     doctors,
     nextCursor: hasMore ? cursorFor(nextOffset, letter, search) : null,
     hasMore,
-    generatedAt: cached.meta.generatedAt,
+    generatedAt: cached.generatedAt,
     source,
     territoryCount: 1,
     territoryId,
-    totals: cached.meta.totals,
+    totals: cached.totals,
   };
 }
