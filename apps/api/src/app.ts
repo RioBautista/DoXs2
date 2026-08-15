@@ -228,10 +228,6 @@ export function buildApp() {
     if (!territoryId || !date) return reply.status(400).send({ ok: false, message: 'territoryId and date are required.' });
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
-    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
-    if (territories.length > 0 && !territories.includes(territoryId)) {
-      return reply.status(403).send({ ok: false, message: 'Territory is outside this user scope.' });
-    }
 
     try {
       const doc = await getCallMapTerritoryDate(effectiveClientSlug ?? 'default', territoryId, date);
