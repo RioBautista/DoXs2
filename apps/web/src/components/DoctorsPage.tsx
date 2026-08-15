@@ -108,16 +108,19 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
           <span>{territoryCount ? `${territoryCount} territories in scope` : 'Manager/global scope'}</span>
         </div>
         {!isLoading && !doctors.length && !error ? <div className="p-10 text-center text-sm text-slate-500">No doctors match this filter.</div> : null}
-        <div className="overflow-x-auto">
+        <div className="max-h-[65vh] overflow-auto">
           <div className="min-w-[920px]">
             <div className="sticky top-0 z-10 grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] border-b border-slate-300 bg-white text-xs font-semibold text-slate-700">
-              <div className="flex items-end px-4 py-3">Doctor / Territory</div>
-              <div className="flex items-end justify-center border-l border-slate-200 px-2 py-3">Frequency</div>
+              <div className="flex items-center px-4 py-3">Doctor / Territory</div>
+              <div className="flex items-center justify-center border-l border-slate-200 px-2 py-3">Frequency</div>
               {weekLabels.map((week, weekIndex) => (
                 <div key={week} className={`border-l border-slate-300 ${weekIndex % 2 ? 'bg-indigo-100' : 'bg-blue-50'}`}>
                   <div className="border-b border-slate-300 px-2 py-1.5 text-center">{week}</div>
                   <div className="grid grid-cols-5 text-[10px] font-medium text-slate-500">
-                    {['M', 'Tu', 'W', 'Th', 'F'].map((day, dayIndex) => <div key={day} className="border-l border-slate-200 px-1 py-1 text-center first:border-l-0">{day}<span className="ml-1 font-bold text-slate-700">{dayTotals[weekIndex][dayIndex]}</span></div>)}
+                    {['M', 'Tu', 'W', 'Th', 'F'].map((day) => <div key={day} className="border-l border-slate-200 px-1 py-1 text-center first:border-l-0">{day}</div>)}
+                  </div>
+                  <div className="grid grid-cols-5 border-t border-slate-200 text-[10px] font-bold text-slate-700">
+                    {dayTotals[weekIndex].map((total, dayIndex) => <div key={dayIndex} className="border-l border-slate-200 px-1 py-1 text-center first:border-l-0">{total}</div>)}
                   </div>
                 </div>
               ))}
