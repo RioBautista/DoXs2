@@ -351,6 +351,12 @@ function parseCoordinate(value: unknown) {
   return parsed;
 }
 
+function hasValidGps(latitude: number | null, longitude: number | null) {
+  if (latitude === null || longitude === null) return false;
+  if (latitude === 0 && longitude === 0) return false;
+  return latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+}
+
 const TERRITORY_PALETTE = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2', '#be123c', '#4f46e5', '#65a30d', '#c026d3'];
 
 function territoryColor(territoryId: string) {
@@ -412,7 +418,7 @@ function buildCallMapDay(date: string, period: { periodKey: string; startDate: s
     const territoryCalls = sortedRows.map((row, index) => {
       const latitude = parseCoordinate(row.latitude);
       const longitude = parseCoordinate(row.longitude);
-      const hasGps = latitude !== null && longitude !== null && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+      const hasGps = hasValidGps(latitude, longitude);
       return {
         id: `${territoryId}-${date}-${index}-${row.md_id ?? 'unknown'}`,
         sequence: index + 1,

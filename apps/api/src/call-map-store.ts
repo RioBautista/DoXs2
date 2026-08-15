@@ -56,6 +56,50 @@ function decodeDay(day: unknown): DashboardCallMapDay | null {
   };
 }
 
+function isZeroGps(latitude: unknown, longitude: unknown) {
+  return Number(latitude) === 0 && Number(longitude) === 0;
+}
+
+function sanitizeZeroGpsDay(day: DashboardCallMapDay): DashboardCallMapDay {
+  const calls = (day.calls ?? []).map((call) => {
+    if (!isZeroGps(call.latitude, call.longitude) && !isZeroGps(call.displayLatitude, call.displayLongitude)) return call;
+    return {
+      ...call,
+      latitude: isZeroGps(call.latitude, call.longitude) ? null : call.latitude,
+      longitude: isZeroGps(call.latitude, call.longitude) ? null : call.longitude,
+      displayLatitude: isZeroGps(call.displayLatitude, call.displayLongitude) ? null : call.displayLatitude,
+      displayLongitude: isZeroGps(call.displayLatitude, call.displayLongitude) ? null : call.displayLongitude,
+      gpsStatus: 'missing' as const,
+      nodeId: null,
+    };
+  });
+
+  const nodes = (day.nodes ?? []).filter((node) => !isZeroGps(node.latitude, node.longitude));
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const normalizedCalls = calls.map((call) => call.nodeId && !nodeIds.has(call.nodeId) ? { ...call, nodeId: null } : call);
+  const sequences = (day.sequences ?? [])
+    .map((sequence) => ({
+      ...sequence,
+      coordinates: sequence.coordinates.filter(([longitude, latitude]) => !isZeroGps(latitude, longitude)),
+    }))
+    .filter((sequence) => sequence.coordinates.length > 1);
+
+  const territories = (day.territories ?? []).map((territory) => {
+    const territoryNodes = nodes.filter((node) => node.territoryId === territory.territoryId);
+    const lngs = territoryNodes.map((node) => node.longitude);
+    const lats = territoryNodes.map((node) => node.latitude);
+    return {
+      ...territory,
+      gpsCallCount: normalizedCalls.filter((call) => call.territoryId === territory.territoryId && call.gpsStatus === 'actual' && call.latitude !== null && call.longitude !== null).length,
+      hasGpsCalls: territoryNodes.length > 0,
+      faded: territoryNodes.length === 0,
+      bounds: territoryNodes.length ? [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)] as [number, number, number, number] : null,
+    };
+  });
+
+  return { ...day, calls: normalizedCalls, nodes, sequences, territories };
+}
+
 function callMapDatePath(clientSlug: string, territoryId: string, date: string) {
   const clientId = sanitizePathSegment(clientSlug || 'default');
   const territoryKey = sanitizePathSegment(territoryId || 'unknown');
@@ -70,13 +114,14 @@ function firestoreSafe<T>(value: T): T {
 function normalizeCachedDoc(data: FirebaseFirestore.DocumentData, cachePath: string): CallMapTerritoryDateDocument | null {
   const day = decodeDay(data.day);
   if (!day || !data.cycle) return null;
+  const sanitizedDay = sanitizeZeroGpsDay(day);
   return {
     ok: Boolean(data.ok),
     clientSlug: String(data.clientSlug ?? ''),
     territoryId: String(data.territoryId ?? ''),
-    date: String(data.date ?? day.date),
+    date: String(data.date ?? sanitizedDay.date),
     cycle: data.cycle as DashboardCallMap['cycle'],
-    day,
+    day: sanitizedDay,
     generatedAt: String(data.generatedAt ?? ''),
     expiresAt: String(data.expiresAt ?? ''),
     businessRulesVersion: String(data.businessRulesVersion ?? BUSINESS_RULES_VERSION),
