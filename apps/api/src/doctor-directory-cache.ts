@@ -16,6 +16,10 @@ type MetaDocument = {
   expiresAt: string;
 };
 
+type StoredMetaDocument = Omit<MetaDocument, 'totals'> & {
+  totals: Omit<Totals, 'byWeekDay'> & { byWeekDayFlat: number[] };
+};
+
 function pathSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, '_') || 'unknown';
 }
@@ -38,12 +42,26 @@ function totalsFor(rows: DoctorDirectoryRow[]): Totals {
   return { byWeekDay, byWeek: byWeekDay.map((days) => days.reduce((sum, count) => sum + count, 0)), grandTotal, doctorCount: rows.length };
 }
 
+function storeMeta(meta: MetaDocument): StoredMetaDocument {
+  const { byWeekDay, ...totals } = meta.totals;
+  return { ...meta, totals: { ...totals, byWeekDayFlat: byWeekDay.flat() } };
+}
+
+function restoreMeta(meta: StoredMetaDocument): MetaDocument | null {
+  const flat = meta.totals?.byWeekDayFlat;
+  if (!Array.isArray(flat) || flat.length !== 25) return null;
+  const byWeekDay = Array.from({ length: 5 }, (_, weekIndex) => flat.slice(weekIndex * 5, weekIndex * 5 + 5));
+  const { byWeekDayFlat: _flat, ...totals } = meta.totals;
+  return { ...meta, totals: { ...totals, byWeekDay } };
+}
+
 async function readCachedRows(clientSlug: string | null, territoryId: string) {
   const db = getAdminFirestore();
   const path = directoryPath(clientSlug, territoryId);
   const metaSnapshot = await db.doc(path).get();
   if (!metaSnapshot.exists) return null;
-  const meta = metaSnapshot.data() as MetaDocument;
+  const meta = restoreMeta(metaSnapshot.data() as StoredMetaDocument);
+  if (!meta) return null;
   if (!meta.expiresAt || Date.parse(meta.expiresAt) <= Date.now()) return null;
   const pages = await Promise.all(Array.from({ length: meta.pageCount }, (_, index) => db.doc(`${path}/pages/${String(index + 1).padStart(4, '0')}`).get()));
   if (pages.some((page) => !page.exists)) return null;
@@ -74,7 +92,7 @@ async function writeCache(clientSlug: string | null, territoryId: string, rows: 
     generatedAt,
   })));
   const meta: MetaDocument = { territoryId, doctorCount: rows.length, pageCount, totals: totalsFor(rows), generatedAt, expiresAt };
-  await db.doc(path).set(meta);
+  await db.doc(path).set(storeMeta(meta));
   return meta;
 }
 
