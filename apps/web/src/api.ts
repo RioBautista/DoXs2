@@ -81,8 +81,16 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
   return data;
 }
 
-export async function getDoctors(params: { letter?: string; search?: string; cursor?: string; limit?: number }): Promise<DoctorDirectoryResponse> {
+export async function getDoctorTerritories(): Promise<string[]> {
+  const response = await fetchJson(`${API_BASE}/doctors/territories`, { method: 'GET', credentials: 'include' });
+  const data = await response.json() as { ok?: boolean; territories?: string[]; message?: string };
+  if (!response.ok) throw new Error(data.message ?? 'Doctor territories request failed.');
+  return data.territories ?? [];
+}
+
+export async function getDoctors(params: { territory: string; letter?: string; search?: string; cursor?: string; limit?: number }): Promise<DoctorDirectoryResponse> {
   const query = new URLSearchParams();
+  query.set('territory', params.territory);
   if (params.letter) query.set('letter', params.letter);
   if (params.search) query.set('search', params.search);
   if (params.cursor) query.set('cursor', params.cursor);

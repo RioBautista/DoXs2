@@ -4,11 +4,31 @@ import type { DoctorDirectoryResponse, DoctorDirectoryRow } from '@doxs/shared';
 import { connectClientMSSQL, getClientMSSQLConfig } from './mssql-dashboard.js';
 
 export const doctorDirectoryQuerySchema = z.object({
+  territory: z.string().trim().min(1).max(128).optional(),
   letter: z.string().trim().regex(/^[A-Z]$/).optional(),
   search: z.string().trim().max(80).optional(),
   cursor: z.string().trim().max(600).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+
+export async function listDoctorTerritories(clientSlug: string | null): Promise<string[]> {
+  const config = getClientMSSQLConfig(clientSlug);
+  if (!config) throw new Error('Client MSSQL doctor directory is not configured.');
+
+  let pool: sql.ConnectionPool | null = null;
+  try {
+    pool = await connectClientMSSQL(config);
+    const result = await pool.request().query<{ territory_id: string | null }>(`
+      select distinct ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) as territory_id
+      from [dbo].[DOCTOR_CLINIC]
+      where TERRITORY_ID is not null and ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) <> ''
+      order by territory_id
+    `);
+    return result.recordset.map((row) => clean(row.territory_id)).filter(Boolean);
+  } finally {
+    if (pool) await pool.close();
+  }
+}
 
 type DoctorCursor = {
   lastName: string;

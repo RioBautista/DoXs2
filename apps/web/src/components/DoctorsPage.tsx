@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, Search, Stethoscope } from 'lucide-react';
-import { getDoctors, type DoctorDirectoryRow } from '../api';
+import { getDoctors, getDoctorTerritories, type DoctorDirectoryRow } from '../api';
+import type { DoctorDirectoryResponse } from '@doxs/shared';
 
 type DoctorsPageProps = { clientName: string };
 const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -15,6 +16,8 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
   const initial = new URLSearchParams(window.location.search);
   const [letter, setLetter] = useState(initial.get('letter') ?? '');
   const [search, setSearch] = useState(initial.get('search') ?? '');
+  const [territories, setTerritories] = useState<string[]>([]);
+  const [selectedTerritory, setSelectedTerritory] = useState(initial.get('territory') ?? '');
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [doctors, setDoctors] = useState<DoctorDirectoryRow[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -23,6 +26,19 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [territoryCount, setTerritoryCount] = useState(0);
+  const [totals, setTotals] = useState<DoctorDirectoryResponse['totals']>();
+
+  useEffect(() => {
+    let cancelled = false;
+    void getDoctorTerritories()
+      .then((items) => {
+        if (cancelled) return;
+        setTerritories(items);
+        setSelectedTerritory((current) => current && items.includes(current) ? current : (items[0] ?? ''));
+      })
+      .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load doctor territories.'); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
@@ -31,20 +47,24 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
 
   useEffect(() => {
     const params = new URLSearchParams();
+    if (selectedTerritory) params.set('territory', selectedTerritory);
     if (letter) params.set('letter', letter);
     if (debouncedSearch) params.set('search', debouncedSearch);
     window.history.replaceState(null, '', `/doctors${params.size ? `?${params.toString()}` : ''}`);
 
+    if (!selectedTerritory) return;
+
     let cancelled = false;
     setIsLoading(true);
     setError(null);
-    void getDoctors({ letter: letter || undefined, search: debouncedSearch || undefined, limit: 50 })
+    void getDoctors({ territory: selectedTerritory, letter: letter || undefined, search: debouncedSearch || undefined, limit: 50 })
       .then((result) => {
         if (cancelled) return;
         setDoctors(result.doctors);
         setNextCursor(result.nextCursor);
         setHasMore(result.hasMore);
         setTerritoryCount(result.territoryCount);
+        setTotals(result.totals);
       })
       .catch((reason) => {
         if (cancelled) return;
@@ -55,14 +75,14 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
       })
       .finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [letter, debouncedSearch]);
+  }, [letter, debouncedSearch, selectedTerritory]);
 
   async function loadMore() {
     if (!nextCursor || isLoadingMore) return;
     setIsLoadingMore(true);
     setError(null);
     try {
-      const result = await getDoctors({ letter: letter || undefined, search: debouncedSearch || undefined, cursor: nextCursor, limit: 50 });
+      const result = await getDoctors({ territory: selectedTerritory, letter: letter || undefined, search: debouncedSearch || undefined, cursor: nextCursor, limit: 50 });
       setDoctors((current) => [...current, ...result.doctors]);
       setNextCursor(result.nextCursor);
       setHasMore(result.hasMore);
@@ -73,10 +93,11 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
     }
   }
 
-  const dayTotals = weekLabels.map((_, weekIndex) => [1, 2, 3, 4, 5].map(
+  const loadedDayTotals = weekLabels.map((_, weekIndex) => [1, 2, 3, 4, 5].map(
     (day) => doctors.filter((doctor) => doctor.visitDays[weekIndex] === day).length,
   ));
-  const grandTotal = doctors.reduce((total, doctor) => total + plannedVisitCount(doctor), 0);
+  const dayTotals = totals?.byWeekDay ?? loadedDayTotals;
+  const grandTotal = totals?.grandTotal ?? doctors.reduce((total, doctor) => total + plannedVisitCount(doctor), 0);
 
   return (
     <div className="space-y-5">
@@ -98,6 +119,12 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
           <button type="button" onClick={() => setLetter('')} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${!letter ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>All</button>
           {letters.map((item) => <button key={item} type="button" onClick={() => setLetter(item)} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${letter === item ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{item}</button>)}
         </div>
+        <div className="mt-4 border-t border-slate-200 pt-4">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Territory</p>
+          <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Doctor territories">
+            {territories.map((territory) => <button key={territory} type="button" role="tab" aria-selected={selectedTerritory === territory} onClick={() => setSelectedTerritory(territory)} className={`flex-none rounded-lg border px-3 py-1.5 text-xs font-bold transition ${selectedTerritory === territory ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:bg-blue-50'}`}>{territory}</button>)}
+          </div>
+        </div>
       </section>
 
       {error ? <div className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertCircle className="h-5 w-5 flex-none" /><span>{error}</span></div> : null}
@@ -105,7 +132,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3 text-xs text-slate-500">
           <span>{isLoading ? 'Loading doctors…' : `${doctors.length} doctor-territory record${doctors.length === 1 ? '' : 's'} loaded`}</span>
-          <span>{territoryCount ? `${territoryCount} territories in scope` : 'Manager/global scope'}</span>
+          <span>{selectedTerritory ? `Territory ${selectedTerritory}` : territoryCount ? `${territoryCount} territories in scope` : 'Loading territory scope…'}</span>
         </div>
         {!isLoading && !doctors.length && !error ? <div className="p-10 text-center text-sm text-slate-500">No doctors match this filter.</div> : null}
         <div className="max-h-[65vh] overflow-auto">
@@ -151,7 +178,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
                 );
               })}
             </div>
-            {doctors.length ? <div className="grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] border-t border-slate-300 bg-slate-50 text-xs font-bold text-slate-700"><div className="px-4 py-2 text-right">Loaded-plan total</div><div className="border-l border-slate-200 px-2 py-2 text-center">{grandTotal}</div>{weekLabels.map((week, index) => <div key={week} className="border-l border-slate-200 px-2 py-2 text-center">{dayTotals[index].reduce((sum, count) => sum + count, 0)}</div>)}</div> : null}
+            {doctors.length ? <div className="grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] border-t border-slate-300 bg-slate-50 text-xs font-bold text-slate-700"><div className="px-4 py-2 text-right">Territory plan total</div><div className="border-l border-slate-200 px-2 py-2 text-center">{grandTotal}</div>{weekLabels.map((week, index) => <div key={week} className="border-l border-slate-200 px-2 py-2 text-center">{dayTotals[index].reduce((sum, count) => sum + count, 0)}</div>)}</div> : null}
           </div>
         </div>
         {hasMore ? <div className="border-t border-slate-200 p-4 text-center"><button type="button" onClick={() => void loadMore()} disabled={isLoadingMore} className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{isLoadingMore ? 'Loading…' : 'Load more doctors'}</button></div> : null}
