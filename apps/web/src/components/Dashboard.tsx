@@ -16,7 +16,7 @@ import {
   Users,
 } from 'lucide-react';
 import { getDashboardActivityOverview, getDashboardCallMapScope, getDashboardCallMapTerritoryDate, getDashboardSummary, type DashboardSummary } from '../api';
-import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay } from '@doxs/shared';
+import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardCallMapTerritory } from '@doxs/shared';
 import { ensureFirebaseSession, getClientFirestore } from '../lib/firebase';
 import type { AuthSession } from '../lib/auth';
 
@@ -81,8 +81,30 @@ function formatMapTitleDate(date: string) {
   return new Intl.DateTimeFormat('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
-function emptyCallMapDay(date: string): DashboardCallMapDay {
-  return { date, territories: [], calls: [], nodes: [], sequences: [] };
+const TERRITORY_PALETTE = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#ea580c', '#0891b2', '#be123c', '#4f46e5', '#65a30d', '#c026d3'];
+
+function territoryColor(territoryId: string) {
+  let hash = 0;
+  for (const char of territoryId) hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+  return TERRITORY_PALETTE[Math.abs(hash) % TERRITORY_PALETTE.length];
+}
+
+function pendingTerritory(territoryId: string): DashboardCallMapTerritory {
+  return {
+    territoryId,
+    color: territoryColor(territoryId),
+    medRepName: null,
+    territoryDescription: null,
+    callCount: 0,
+    gpsCallCount: 0,
+    hasGpsCalls: false,
+    faded: true,
+    bounds: null,
+  };
+}
+
+function emptyCallMapDay(date: string, territoryIds: string[] = []): DashboardCallMapDay {
+  return { date, territories: territoryIds.map(pendingTerritory), calls: [], nodes: [], sequences: [] };
 }
 
 function mergeCallMapDay(current: DashboardCallMap | null, cycle: DashboardCallMap['cycle'], selectedDate: string, day: DashboardCallMapDay): DashboardCallMap {
@@ -108,7 +130,7 @@ function mergeCallMapDay(current: DashboardCallMap | null, cycle: DashboardCallM
   };
 }
 
-function CallMap({ callMap, status, progress, selectedDate, onDateChange }: { callMap: DashboardCallMap | null; status: 'loading' | 'loaded' | 'error'; progress?: { loaded: number; total: number }; selectedDate: string; onDateChange: (date: string) => void }) {
+function CallMap({ callMap, status, progress, selectedDate, onDateChange, loadedTerritoryIds, loadingTerritoryIds, onTerritorySelect }: { callMap: DashboardCallMap | null; status: 'loading' | 'loaded' | 'error'; progress?: { loaded: number; total: number }; selectedDate: string; onDateChange: (date: string) => void; loadedTerritoryIds: Set<string>; loadingTerritoryIds: Set<string>; onTerritorySelect: (territoryId: string) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
@@ -266,22 +288,27 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange }: { ca
 
       {territories.length > 1 ? (
         <div className="mb-4 flex flex-wrap gap-2">
-          {territories.map((territory) => (
-            <button
-              key={territory.territoryId}
-              type="button"
-              onClick={() => {
-                setSelectedTerritory(territory.territoryId);
-                focusBounds(territory.bounds);
-              }}
-              title={`${territory.medRepName ?? 'MedRep not available'} · ${territory.territoryDescription ?? 'Territory description not available'}`}
-              className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:bg-slate-50"
-              style={{ borderColor: territory.color, color: territory.color, opacity: territory.faded ? 0.45 : 1 }}
-            >
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: territory.color }} />
-              {territory.territoryId} · {territory.callCount}
-            </button>
-          ))}
+          {territories.map((territory) => {
+            const isLoaded = loadedTerritoryIds.has(territory.territoryId);
+            const isLoadingTerritory = loadingTerritoryIds.has(territory.territoryId);
+            return (
+              <button
+                key={territory.territoryId}
+                type="button"
+                onClick={() => {
+                  setSelectedTerritory(territory.territoryId);
+                  if (!isLoaded) onTerritorySelect(territory.territoryId);
+                  focusBounds(territory.bounds);
+                }}
+                title={`${territory.medRepName ?? (isLoaded ? 'MedRep not available' : 'Territory metadata loading')} · ${territory.territoryDescription ?? (isLoaded ? 'Territory description not available' : 'Click to load this territory now')}`}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:bg-slate-50 ${isLoadingTerritory ? 'ring-2 ring-slate-200' : ''}`}
+                style={{ borderColor: territory.color, color: territory.color, opacity: isLoaded ? 1 : 0.45 }}
+              >
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: territory.color }} />
+                {territory.territoryId} · {isLoaded ? territory.callCount : '…'}
+              </button>
+            );
+          })}
         </div>
       ) : null}
 
@@ -312,7 +339,7 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange }: { ca
               </div>
             </div>
             <div className="space-y-2">
-              {status === 'loading' && !panelCalls.length ? <div className="rounded-lg bg-white p-4"><LoadingIndicator label={progress?.total ? `Loading call list ${progress.loaded}/${progress.total}…` : 'Loading call list…'} /></div> : panelCalls.length ? panelCalls.map((call) => (
+              {status === 'loading' && panelTerritoryId && !loadedTerritoryIds.has(panelTerritoryId) ? <div className="rounded-lg bg-white p-4"><LoadingIndicator label={loadingTerritoryIds.has(panelTerritoryId) ? `Loading ${panelTerritoryId} now…` : 'Click a territory chip to prioritize it…'} /></div> : panelCalls.length ? panelCalls.map((call) => (
                 <button key={call.id} type="button" onClick={() => focusNode(call.nodeId)} className="w-full rounded-lg bg-white p-3 text-left text-xs shadow-sm transition hover:ring-2 hover:ring-slate-200">
                   <div className="flex justify-between gap-2 font-semibold text-slate-900">
                     <span>{call.timeLabel}</span>
@@ -400,130 +427,199 @@ export function Dashboard({ session }: DashboardProps) {
   const [callMapTerritories, setCallMapTerritories] = useState<string[]>([]);
   const [selectedCallMapDate, setSelectedCallMapDate] = useState<string>(() => new Date().toLocaleDateString('en-CA'));
   const [callMapLoadedCount, setCallMapLoadedCount] = useState(0);
+  const [loadedTerritoryIds, setLoadedTerritoryIds] = useState<Set<string>>(() => new Set());
+  const [loadingTerritoryIds, setLoadingTerritoryIds] = useState<Set<string>>(() => new Set());
+  const loadTerritoryNowRef = useRef<((territoryId: string) => void) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    let unsubscribe: (() => void) | undefined;
 
-    async function loadDashboard() {
-      setIsLoading(true);
-      setSubscriptionStatus('pending');
-      try {
-        const result = await getDashboardSummary();
-        if (cancelled) return;
-        setSummary(result);
-
-        setActivityStatus('loading');
-        setCallMapStatus('loading');
-
-        void getDashboardActivityOverview()
-          .then((activityResult) => {
-            if (!cancelled && activityResult.ok && activityResult.activityOverview) {
-              setActivityOverview(activityResult.activityOverview ?? null);
-              setActivityStatus('loaded');
-            } else if (!cancelled) {
-              setActivityStatus(activityResult.ok ? 'loaded' : 'error');
-            }
-          })
-          .catch(() => {
-            if (!cancelled) setActivityStatus('error');
-          });
-
-        void getDashboardCallMapScope()
-          .then((scopeResult) => {
-            if (!cancelled && scopeResult.ok && scopeResult.cycle && scopeResult.selectedDate) {
-              setCallMapCycle(scopeResult.cycle);
-              setSelectedCallMapDate(scopeResult.selectedDate);
-              setCallMapTerritories(scopeResult.territories ?? []);
-            } else if (!cancelled) {
-              setCallMapStatus(scopeResult.ok ? 'loaded' : 'error');
-            }
-          })
-          .catch(() => {
-            if (!cancelled) setCallMapStatus('error');
-          });
-
-        try {
-          const firebaseReady = await ensureFirebaseSession();
-          const firestore = getClientFirestore();
-          const cachePath = result.cache?.cachePath;
-          if (!firebaseReady || !firestore || !cachePath) {
-            setSubscriptionStatus('api-only');
-            return;
-          }
-
-          unsubscribe = onSnapshot(
-            doc(firestore, cachePath),
-            (snapshot) => {
-              if (!snapshot.exists()) return;
-              const cachedSummary = snapshot.data() as DashboardSummary;
-              setSummary(cachedSummary);
-              setSubscriptionStatus('subscribed');
-            },
-            () => {
-              setSubscriptionStatus('api-only');
-            },
-          );
-        } catch {
-          if (!cancelled) setSubscriptionStatus('api-only');
-        }
-      } catch {
+    setIsLoading(true);
+    void getDashboardSummary()
+      .then((result) => {
+        if (!cancelled) setSummary(result);
+      })
+      .catch(() => {
         if (!cancelled) {
           setSummary(null);
           setSubscriptionStatus('api-only');
-          setActivityStatus('error');
-          setActivityOverview(null);
-          setCallMap(null);
-          setCallMapCycle(null);
-          setCallMapTerritories([]);
-          setCallMapLoadedCount(0);
-          setCallMapStatus('error');
         }
-      } finally {
+      })
+      .finally(() => {
         if (!cancelled) setIsLoading(false);
-      }
-    }
+      });
 
-    void loadDashboard();
     return () => {
       cancelled = true;
-      unsubscribe?.();
     };
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    setActivityStatus('loading');
+    void getDashboardActivityOverview()
+      .then((activityResult) => {
+        if (cancelled) return;
+        if (activityResult.ok && activityResult.activityOverview) {
+          setActivityOverview(activityResult.activityOverview ?? null);
+          setActivityStatus('loaded');
+        } else {
+          setActivityOverview(null);
+          setActivityStatus(activityResult.ok ? 'loaded' : 'error');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setActivityStatus('error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setCallMapStatus('loading');
+    void getDashboardCallMapScope()
+      .then((scopeResult) => {
+        if (cancelled) return;
+        if (scopeResult.ok && scopeResult.cycle && scopeResult.selectedDate) {
+          setCallMapCycle(scopeResult.cycle);
+          setSelectedCallMapDate(scopeResult.selectedDate);
+          setCallMapTerritories(scopeResult.territories ?? []);
+        } else {
+          setCallMapCycle(null);
+          setCallMapTerritories([]);
+          setCallMapLoadedCount(0);
+          setLoadedTerritoryIds(new Set());
+          setLoadingTerritoryIds(new Set());
+          setCallMapStatus(scopeResult.ok ? 'loaded' : 'error');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCallMapStatus('error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    const cachePath = summary?.cache?.cachePath;
+
+    setSubscriptionStatus('pending');
+    if (!cachePath) {
+      setSubscriptionStatus(summary ? 'api-only' : 'pending');
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      try {
+        const firebaseReady = await ensureFirebaseSession();
+        const firestore = getClientFirestore();
+        if (cancelled) return;
+        if (!firebaseReady || !firestore) {
+          setSubscriptionStatus('api-only');
+          return;
+        }
+
+        unsubscribe = onSnapshot(
+          doc(firestore, cachePath),
+          (snapshot) => {
+            if (!snapshot.exists()) return;
+            const cachedSummary = snapshot.data() as DashboardSummary;
+            setSummary(cachedSummary);
+            setSubscriptionStatus('subscribed');
+          },
+          () => {
+            setSubscriptionStatus('api-only');
+          },
+        );
+      } catch {
+        if (!cancelled) setSubscriptionStatus('api-only');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [summary?.cache?.cachePath]);
+
+  useEffect(() => {
     if (!callMapCycle || !selectedCallMapDate) return;
     let cancelled = false;
-    const territories = callMapTerritories;
+    const territories = [...callMapTerritories];
+    const completedTerritories = new Set<string>();
+    const inFlightTerritories = new Set<string>();
+    let successfulLoads = 0;
+    let completedLoads = 0;
+
     setCallMapLoadedCount(0);
-    setCallMap({ selectedDate: selectedCallMapDate, cycle: callMapCycle, days: { [selectedCallMapDate]: emptyCallMapDay(selectedCallMapDate) }, points: [] });
+    setLoadedTerritoryIds(new Set());
+    setLoadingTerritoryIds(new Set());
+    setCallMap({ selectedDate: selectedCallMapDate, cycle: callMapCycle, days: { [selectedCallMapDate]: emptyCallMapDay(selectedCallMapDate, territories) }, points: [] });
+
     if (!territories.length) {
       setCallMapStatus('loaded');
+      loadTerritoryNowRef.current = null;
       return () => { cancelled = true; };
     }
 
     setCallMapStatus('loading');
-    void (async () => {
-      let successfulLoads = 0;
-      for (const territoryId of territories) {
+
+    const loadTerritory = async (territoryId: string) => {
+      if (cancelled || completedTerritories.has(territoryId) || inFlightTerritories.has(territoryId)) return;
+      inFlightTerritories.add(territoryId);
+      setLoadingTerritoryIds((current) => new Set(current).add(territoryId));
+      try {
+        const result = await getDashboardCallMapTerritoryDate(territoryId, selectedCallMapDate);
         if (cancelled) return;
-        try {
-          const result = await getDashboardCallMapTerritoryDate(territoryId, selectedCallMapDate);
-          if (cancelled) return;
-          if (result.ok && result.day) {
-            successfulLoads += 1;
-            setCallMap((current) => mergeCallMapDay(current, result.cycle ?? callMapCycle, selectedCallMapDate, result.day!));
-          }
-        } finally {
-          if (!cancelled) setCallMapLoadedCount((count) => count + 1);
+        if (result.ok && result.day) {
+          successfulLoads += 1;
+          setCallMap((current) => mergeCallMapDay(current, result.cycle ?? callMapCycle, selectedCallMapDate, result.day!));
+        }
+      } finally {
+        inFlightTerritories.delete(territoryId);
+        if (!cancelled) {
+          completedTerritories.add(territoryId);
+          completedLoads += 1;
+          setLoadedTerritoryIds((current) => new Set(current).add(territoryId));
+          setLoadingTerritoryIds((current) => {
+            const next = new Set(current);
+            next.delete(territoryId);
+            return next;
+          });
+          setCallMapLoadedCount(completedLoads);
+          if (completedLoads >= territories.length) setCallMapStatus(successfulLoads > 0 ? 'loaded' : 'error');
         }
       }
-      if (!cancelled) setCallMapStatus(successfulLoads > 0 ? 'loaded' : 'error');
+    };
+
+    loadTerritoryNowRef.current = (territoryId: string) => {
+      if (!territories.includes(territoryId)) return;
+      void loadTerritory(territoryId);
+    };
+
+    void (async () => {
+      for (const territoryId of territories) {
+        if (cancelled) return;
+        await loadTerritory(territoryId);
+      }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      loadTerritoryNowRef.current = null;
+    };
   }, [callMapCycle, callMapTerritories, selectedCallMapDate]);
-
 
   const mssqlReady = summary?.dataSource?.status === 'configured';
 
@@ -566,7 +662,7 @@ export function Dashboard({ session }: DashboardProps) {
             <ActivityOverviewChart activityOverview={activityOverview} status={activityStatus} />
           </div>
 
-          <CallMap callMap={callMap} status={callMapStatus} progress={{ loaded: callMapLoadedCount, total: callMapTerritories.length }} selectedDate={selectedCallMapDate} onDateChange={setSelectedCallMapDate} />
+          <CallMap callMap={callMap} status={callMapStatus} progress={{ loaded: callMapLoadedCount, total: callMapTerritories.length }} selectedDate={selectedCallMapDate} onDateChange={setSelectedCallMapDate} loadedTerritoryIds={loadedTerritoryIds} loadingTerritoryIds={loadingTerritoryIds} onTerritorySelect={(territoryId) => loadTerritoryNowRef.current?.(territoryId)} />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
