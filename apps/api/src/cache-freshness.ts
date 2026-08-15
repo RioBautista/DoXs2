@@ -94,7 +94,8 @@ async function refreshDashboardScopeCaches(clientId: string, changedTerritories:
 
     const data = snap.data() as ScopeCacheDoc & { stale?: boolean; expiresAt?: string };
     const territories = data.scopeDefinition?.territories ?? [];
-    const affectedTerritories = territories.filter((territory) => changed.has(territory));
+    const mssqlTerritories = territories.filter((territory) => !territory.startsWith('user:'));
+    const affectedTerritories = mssqlTerritories.filter((territory) => changed.has(territory));
     const changedScope = affectedTerritories.length > 0;
 
     if (changedScope) {
@@ -140,8 +141,8 @@ async function refreshDashboardScopeCaches(clientId: string, changedTerritories:
         cachePath: viewRef.path,
       };
       const [summary, activityOverview] = await Promise.all([
-        getDashboardSummary(clientId, territories),
-        getDashboardActivityOverview(clientId, territories),
+        getDashboardSummary(clientId, mssqlTerritories),
+        getDashboardActivityOverview(clientId, mssqlTerritories),
       ]);
       await writeDashboardCache(summary, scope, { sourceWatermark });
       await writeDashboardActivityOverviewCache(activityOverview, {

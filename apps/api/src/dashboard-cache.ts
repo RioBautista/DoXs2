@@ -46,6 +46,24 @@ export function resolveDashboardScope(session: SessionPayload, clientSlug?: stri
   return { clientId, userId, territories, roles, periodKey, scopeHash, scopeKey, cachePath };
 }
 
+
+function containsOnlyUserScopeSentinel(territories: string[] = []) {
+  return territories.length > 0 && territories.every((territory) => territory.startsWith('user:'));
+}
+
+function hasZeroMetrics(metrics: DashboardSummary['metrics'] | undefined) {
+  return Boolean(metrics)
+    && (metrics?.targetCalls ?? null) === 0
+    && (metrics?.actualCalls ?? null) === 0
+    && (metrics?.doctorsReached ?? null) === 0
+    && (metrics?.doctorsPlanned ?? null) === 0;
+}
+
+function hasZeroActivityOverview(activityOverview: DashboardActivityOverview | null | undefined) {
+  const points = activityOverview?.points ?? [];
+  return points.length > 0 && points.every((point) => point.targetCalls === 0 && point.actualCalls === 0);
+}
+
 function viewCachePathFor(clientId: string, scopeHash: string, viewKey: string) {
   return `iDoXs_Clients/${clientId}/scopeCaches/${scopeHash}/viewCaches/${viewKey}`;
 }
@@ -73,6 +91,7 @@ export async function readFreshDashboardCache(scope: DashboardScope): Promise<Da
   if (!data) return null;
   if (data.stale || data.cache?.stale) return null;
   if (!data.expiresAt || Date.parse(data.expiresAt) <= Date.now()) return null;
+  if (containsOnlyUserScopeSentinel(data.scopeDefinition?.territories ?? []) && hasZeroMetrics(data.metrics)) return null;
 
   const { callMap: _legacyCallMap, activityOverview: _legacyActivityOverview, ...summaryOnlyData } = data as DashboardCacheDocument & { callMap?: unknown; activityOverview?: unknown };
 
@@ -141,6 +160,7 @@ export async function readFreshDashboardActivityOverviewCache(scope: DashboardSc
   if (!data) return null;
   if (data.stale || data.cache?.stale) return null;
   if (!data.expiresAt || Date.parse(data.expiresAt) <= Date.now()) return null;
+  if (containsOnlyUserScopeSentinel(data.scopeDefinition?.territories ?? []) && hasZeroActivityOverview(data.activityOverview)) return null;
   return {
     ...data,
     cache: {
