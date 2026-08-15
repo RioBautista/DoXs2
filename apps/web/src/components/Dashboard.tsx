@@ -147,9 +147,24 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange, loaded
   const panelTerritoryId = selectedTerritory ?? selectedTerritoryDetail?.territoryId ?? null;
   const panelCalls = panelTerritoryId ? calls.filter((call) => call.territoryId === panelTerritoryId) : [];
 
+  function zoomOutMap() {
+    const map = mapRef.current;
+    if (!map) return;
+    if (nodes.length) {
+      const bounds = new mapboxgl.LngLatBounds();
+      nodes.forEach((node) => bounds.extend([node.longitude, node.latitude]));
+      map.fitBounds(bounds, { padding: 64, maxZoom: 12, duration: 500 });
+      return;
+    }
+    map.flyTo({ center: [120.9842, 14.5995], zoom: 9, duration: 500 });
+  }
+
   function focusBounds(bounds: [number, number, number, number] | null | undefined) {
     const map = mapRef.current;
-    if (!map || !bounds) return;
+    if (!map || !bounds) {
+      zoomOutMap();
+      return;
+    }
     map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], { padding: 72, maxZoom: 15, duration: 500 });
   }
 
@@ -291,6 +306,7 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange, loaded
           {territories.map((territory) => {
             const isLoaded = loadedTerritoryIds.has(territory.territoryId);
             const isLoadingTerritory = loadingTerritoryIds.has(territory.territoryId);
+            const hasGpsCall = (territory.gpsCallCount ?? 0) > 0;
             return (
               <button
                 key={territory.territoryId}
@@ -298,13 +314,14 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange, loaded
                 onClick={() => {
                   setSelectedTerritory(territory.territoryId);
                   if (!isLoaded) onTerritorySelect(territory.territoryId);
-                  focusBounds(territory.bounds);
+                  if (hasGpsCall) focusBounds(territory.bounds);
+                  else zoomOutMap();
                 }}
                 title={`${territory.medRepName ?? (isLoaded ? 'MedRep not available' : 'Territory metadata loading')} · ${territory.territoryDescription ?? (isLoaded ? 'Territory description not available' : 'Click to load this territory now')}`}
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:bg-slate-50 ${isLoadingTerritory ? 'ring-2 ring-slate-200' : ''}`}
                 style={{ borderColor: territory.color, color: territory.color, opacity: isLoaded ? 1 : 0.45 }}
               >
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: territory.color }} />
+                {hasGpsCall ? <span className="h-2.5 w-2.5 rounded-full" style={{ background: territory.color }} /> : null}
                 {territory.territoryId} · {isLoaded ? territory.callCount : '…'}
               </button>
             );
