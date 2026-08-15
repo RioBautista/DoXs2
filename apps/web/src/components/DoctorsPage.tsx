@@ -138,8 +138,8 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
                     {doctor.visitDays.map((day, weekIndex) => (
                       <div key={weekIndex} className={`grid grid-cols-5 border-l border-slate-300 ${weekIndex % 2 ? 'bg-indigo-50/70' : 'bg-blue-50/60'}`}>
                         {[1, 2, 3, 4, 5].map((dayNumber) => (
-                          <div key={dayNumber} className={`flex min-h-11 items-center justify-center border-l border-slate-200 text-[11px] font-bold first:border-l-0 ${day === dayNumber ? 'bg-brand-600 text-white' : 'text-transparent'}`}>
-                            {day === dayNumber ? dayLabels[dayNumber] : '·'}
+                          <div key={dayNumber} className="flex min-h-11 items-center justify-center border-l border-slate-200 first:border-l-0">
+                            {day === dayNumber ? <span className="flex h-6 w-6 items-center justify-center bg-brand-600 text-[10px] font-bold text-white shadow-sm">{dayLabels[dayNumber]}</span> : null}
                           </div>
                         ))}
                       </div>
