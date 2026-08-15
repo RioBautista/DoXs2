@@ -2,7 +2,7 @@ import type { DashboardCallMap, DashboardCallMapDay, DashboardCallMapSequence } 
 import { getAdminFirestore } from './firestore-admin.js';
 import { getDashboardCallMap } from './mssql-dashboard.js';
 
-const CALL_MAP_TTL_MS = Number(process.env.DASHBOARD_CALL_MAP_TTL_MS ?? 5 * 60 * 1000);
+const CALL_MAP_TTL_MS = Number(process.env.DASHBOARD_CALL_MAP_TTL_MS ?? 24 * 60 * 60 * 1000);
 const BUSINESS_RULES_VERSION = '1';
 
 function sanitizePathSegment(value: string) {
@@ -90,7 +90,7 @@ async function readFreshTerritoryDate(clientSlug: string, territoryId: string, d
   const snapshot = await getAdminFirestore().doc(cachePath).get();
   if (!snapshot.exists) return null;
   const data = snapshot.data();
-  if (!data?.expiresAt || Date.parse(String(data.expiresAt)) <= Date.now()) return null;
+  if (!data?.expiresAt) return null;
   return normalizeCachedDoc(data, cachePath);
 }
 

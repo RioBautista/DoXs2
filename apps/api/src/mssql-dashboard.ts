@@ -120,6 +120,27 @@ function normalizedTerritories(territories: string[] = []) {
   return [...new Set(territories.map((territory) => territory.trim()).filter(Boolean))].sort();
 }
 
+const USER_TERRITORY_SCOPE_CACHE_TTL_MS = Number(process.env.USER_TERRITORY_SCOPE_CACHE_TTL_MS ?? 10 * 60 * 1000);
+const userTerritoryScopeCache = new Map<string, { expiresAt: number; value?: string[]; promise?: Promise<string[]> }>();
+
+function userTerritoryScopeCacheKey(clientSlug: string | null | undefined, userId: string) {
+  return `${(clientSlug ?? 'default').toLowerCase()}::${userId.toLowerCase()}`;
+}
+
+function readUserTerritoryScopeCache(clientSlug: string | null | undefined, userId: string) {
+  const cached = userTerritoryScopeCache.get(userTerritoryScopeCacheKey(clientSlug, userId));
+  if (!cached || cached.expiresAt <= Date.now()) return null;
+  return cached;
+}
+
+function writeUserTerritoryScopeCache(clientSlug: string | null | undefined, userId: string, value: string[]) {
+  userTerritoryScopeCache.set(userTerritoryScopeCacheKey(clientSlug, userId), {
+    expiresAt: Date.now() + USER_TERRITORY_SCOPE_CACHE_TTL_MS,
+    value: [...value],
+  });
+  return value;
+}
+
 function addTerritoryInputs(request: sql.Request, territories: string[]) {
   territories.forEach((territory, index) => request.input(`territory${index}`, sql.VarChar, territory));
 }
@@ -917,32 +938,47 @@ export async function getClientUserTerritories(clientSlug: string | null | undef
     return ['EA1019', 'PP1021'];
   }
 
-  const config = getClientMSSQLConfig(clientSlug);
-  if (!config) return [];
+  const cached = readUserTerritoryScopeCache(clientSlug, userId);
+  if (cached?.value) return [...cached.value];
+  if (cached?.promise) return [...await cached.promise];
 
-  let pool: sql.ConnectionPool | null = null;
-  try {
-    pool = await connectClientMSSQL(config);
-    const hasView = await tableExists(pool, 'dbo', 'vw_user_territories');
-    const hasTable = await tableExists(pool, 'dbo', 'user_territories');
-    const tableName = hasView ? '[dbo].[vw_user_territories]' : hasTable ? '[dbo].[user_territories]' : null;
-    if (!tableName) return [];
+  const loadPromise = (async () => {
+    const config = getClientMSSQLConfig(clientSlug);
+    if (!config) return [];
 
-    const result = await pool.request()
-      .input('userId', sql.VarChar, userId)
-      .query<{ territory_id: string | null }>(`
-        select distinct ltrim(rtrim(cast(territory_id as varchar(128)))) as territory_id
-        from ${tableName}
-        where ltrim(rtrim(cast(userid as varchar(128)))) = ltrim(rtrim(@userId))
-          and territory_id is not null
-          and ltrim(rtrim(cast(territory_id as varchar(128)))) <> ''
-        order by territory_id
-      `);
+    let pool: sql.ConnectionPool | null = null;
+    try {
+      pool = await connectClientMSSQL(config);
+      const hasView = await tableExists(pool, 'dbo', 'vw_user_territories');
+      const hasTable = await tableExists(pool, 'dbo', 'user_territories');
+      const tableName = hasView ? '[dbo].[vw_user_territories]' : hasTable ? '[dbo].[user_territories]' : null;
+      if (!tableName) return [];
 
-    return result.recordset.map((row) => row.territory_id).filter((value): value is string => Boolean(value));
-  } catch {
-    return [];
-  } finally {
-    if (pool) await pool.close();
-  }
+      const result = await pool.request()
+        .input('userId', sql.VarChar, userId)
+        .query<{ territory_id: string | null }>(`
+          select distinct ltrim(rtrim(cast(territory_id as varchar(128)))) as territory_id
+          from ${tableName}
+          where ltrim(rtrim(cast(userid as varchar(128)))) = ltrim(rtrim(@userId))
+            and territory_id is not null
+            and ltrim(rtrim(cast(territory_id as varchar(128)))) <> ''
+          order by territory_id
+        `);
+
+      return result.recordset.map((row) => row.territory_id).filter((value): value is string => Boolean(value));
+    } catch {
+      return [];
+    } finally {
+      if (pool) await pool.close();
+    }
+  })();
+
+  userTerritoryScopeCache.set(userTerritoryScopeCacheKey(clientSlug, userId), {
+    expiresAt: Date.now() + USER_TERRITORY_SCOPE_CACHE_TTL_MS,
+    promise: loadPromise,
+  });
+
+  const loaded = await loadPromise;
+  return [...writeUserTerritoryScopeCache(clientSlug, userId, loaded)];
 }
+
