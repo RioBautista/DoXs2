@@ -1,14 +1,14 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminFirestore } from './firestore-admin.js';
-import { getDashboardSummary, getItineraryTerritoryWatermarks } from './mssql-dashboard.js';
-import { type DashboardScope, writeDashboardCache } from './dashboard-cache.js';
+import { getDashboardActivityOverview, getDashboardSummary, getItineraryTerritoryWatermarks } from './mssql-dashboard.js';
+import { DASHBOARD_VIEW_KEYS, type DashboardScope, viewCachePath, writeDashboardActivityOverviewCache, writeDashboardCache } from './dashboard-cache.js';
 
-const DEFAULT_CLIENTS = ['wert'];
+const DEFAULT_CLIENTS = ['wert', 'oxford'];
 const DEFAULT_INTERVAL_MS = 60_000;
 const LEASE_TTL_MS = Number(process.env.DASHBOARD_CACHE_LEASE_TTL_MS ?? 120_000);
 const CHECK_TIMEOUT_MS = Number(process.env.DASHBOARD_CACHE_WATCH_TIMEOUT_MS ?? 45_000);
-const VIEW_KEY = 'dashboardSummary';
+const VIEW_KEY = DASHBOARD_VIEW_KEYS.summary;
 
 type FreshnessState = {
   territoryWatermarks?: Record<string, string>;
@@ -99,19 +99,32 @@ async function refreshDashboardScopeCaches(clientId: string, changedTerritories:
 
     if (changedScope) {
       staleCount += 1;
-      await viewRef.set({
+      const stalePatch = {
         stale: true,
         staleReason: 'itinerary-territory-watermark-advanced',
         staleDetectedAt: new Date().toISOString(),
         affectedTerritories,
         sourceWatermark,
+      };
+      await viewRef.set({
+        ...stalePatch,
         cache: {
           ...(snap.data()?.cache ?? {}),
-          stale: true,
-          staleReason: 'itinerary-territory-watermark-advanced',
-          staleDetectedAt: new Date().toISOString(),
+          ...stalePatch,
         },
       }, { merge: true });
+
+      const activityRef = scopeRef.collection('viewCaches').doc(DASHBOARD_VIEW_KEYS.activityOverview);
+      const activitySnap = await activityRef.get();
+      if (activitySnap.exists) {
+        await activityRef.set({
+          ...stalePatch,
+          cache: {
+            ...(activitySnap.data()?.cache ?? {}),
+            ...stalePatch,
+          },
+        }, { merge: true });
+      }
     }
 
     try {
@@ -126,8 +139,15 @@ async function refreshDashboardScopeCaches(clientId: string, changedTerritories:
         scopeKey: data.scopeKey ?? `territory:${scopeHash}`,
         cachePath: viewRef.path,
       };
-      const summary = await getDashboardSummary(clientId, territories);
+      const [summary, activityOverview] = await Promise.all([
+        getDashboardSummary(clientId, territories),
+        getDashboardActivityOverview(clientId, territories),
+      ]);
       await writeDashboardCache(summary, scope, { sourceWatermark });
+      await writeDashboardActivityOverviewCache(activityOverview, {
+        ...scope,
+        cachePath: viewCachePath(scope, DASHBOARD_VIEW_KEYS.activityOverview),
+      });
       refreshedCount += 1;
     } catch (error) {
       skippedCount += 1;

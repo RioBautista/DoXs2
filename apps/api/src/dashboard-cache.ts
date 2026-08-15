@@ -1,11 +1,12 @@
 import crypto from 'node:crypto';
-import type { DashboardCacheDocument, DashboardSummary } from '@doxs/shared';
+import type { DashboardActivityOverview, DashboardCacheDocument, DashboardSummary } from '@doxs/shared';
 import { getAdminFirestore } from './firestore-admin.js';
 import type { SessionPayload } from './session.js';
 
 const DASHBOARD_SUMMARY_VIEW_KEY = 'dashboardSummary';
+const DASHBOARD_ACTIVITY_OVERVIEW_VIEW_KEY = 'activityOverview';
 const BUSINESS_RULES_VERSION = '1';
-const CACHE_TTL_MS = Number(process.env.DASHBOARD_CACHE_TTL_MS ?? 5 * 60 * 1000);
+const CACHE_TTL_MS = Number(process.env.DASHBOARD_CACHE_TTL_MS ?? 24 * 60 * 60 * 1000);
 
 function stableHash(value: unknown) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24);
@@ -40,17 +41,22 @@ export function resolveDashboardScope(session: SessionPayload, clientSlug?: stri
   const scopeBasis = { clientId, territories, roles, periodKey, businessRulesVersion: BUSINESS_RULES_VERSION };
   const scopeHash = stableHash(scopeBasis);
   const scopeKey = `territory:${scopeHash}`;
-  const cachePath = `iDoXs_Clients/${clientId}/scopeCaches/${scopeHash}/viewCaches/${DASHBOARD_SUMMARY_VIEW_KEY}`;
+  const cachePath = viewCachePathFor(clientId, scopeHash, DASHBOARD_SUMMARY_VIEW_KEY);
 
   return { clientId, userId, territories, roles, periodKey, scopeHash, scopeKey, cachePath };
 }
 
+function viewCachePathFor(clientId: string, scopeHash: string, viewKey: string) {
+  return `iDoXs_Clients/${clientId}/scopeCaches/${scopeHash}/viewCaches/${viewKey}`;
+}
+
 export function viewCachePath(scope: DashboardScope, viewKey: string) {
-  return `iDoXs_Clients/${scope.clientId}/scopeCaches/${scope.scopeHash}/viewCaches/${viewKey}`;
+  return viewCachePathFor(scope.clientId, scope.scopeHash, viewKey);
 }
 
 export const DASHBOARD_VIEW_KEYS = {
   summary: DASHBOARD_SUMMARY_VIEW_KEY,
+  activityOverview: DASHBOARD_ACTIVITY_OVERVIEW_VIEW_KEY,
 } as const;
 
 
@@ -87,6 +93,116 @@ export async function readFreshDashboardCache(scope: DashboardScope): Promise<Da
       source: 'firestore-cache' as const,
     },
   };
+}
+
+
+export type DashboardActivityOverviewCacheDocument = {
+  ok: boolean;
+  clientSlug?: string | null;
+  activityOverview: DashboardActivityOverview | null;
+  message?: string;
+  viewKey: string;
+  scopeHash: string;
+  scopeKey: string;
+  scopeDefinition: {
+    clientId: string;
+    userId?: string;
+    territories: string[];
+    roles: string[];
+  };
+  periodKey: string;
+  businessRulesVersion: string;
+  generatedAt: string;
+  expiresAt: string;
+  stale?: boolean;
+  staleReason?: string | null;
+  staleDetectedAt?: string | null;
+  cache: {
+    cachePath: string;
+    scopeHash: string;
+    scopeKey: string;
+    viewKey: string;
+    periodKey: string;
+    businessRulesVersion: string;
+    generatedAt: string;
+    expiresAt: string;
+    source: 'firestore-cache' | 'mssql-refresh' | 'api-fallback';
+    stale?: boolean;
+    staleReason?: string | null;
+    staleDetectedAt?: string | null;
+  };
+};
+
+export async function readFreshDashboardActivityOverviewCache(scope: DashboardScope): Promise<DashboardActivityOverviewCacheDocument | null> {
+  const cachePath = viewCachePath(scope, DASHBOARD_ACTIVITY_OVERVIEW_VIEW_KEY);
+  const snapshot = await getAdminFirestore().doc(cachePath).get();
+  if (!snapshot.exists) return null;
+  const data = snapshot.data() as (DashboardActivityOverviewCacheDocument & { cache?: DashboardActivityOverviewCacheDocument['cache'] }) | undefined;
+  if (!data) return null;
+  if (data.stale || data.cache?.stale) return null;
+  if (!data.expiresAt || Date.parse(data.expiresAt) <= Date.now()) return null;
+  return {
+    ...data,
+    cache: {
+      ...(data.cache ?? {
+        cachePath,
+        scopeHash: scope.scopeHash,
+        scopeKey: scope.scopeKey,
+        viewKey: DASHBOARD_ACTIVITY_OVERVIEW_VIEW_KEY,
+        periodKey: scope.periodKey,
+        businessRulesVersion: BUSINESS_RULES_VERSION,
+        generatedAt: data.generatedAt,
+        expiresAt: data.expiresAt,
+        source: 'firestore-cache' as const,
+      }),
+      source: 'firestore-cache' as const,
+    },
+  };
+}
+
+export async function writeDashboardActivityOverviewCache(result: { ok: boolean; clientSlug?: string | null; activityOverview?: DashboardActivityOverview | null; message?: string }, scope: DashboardScope): Promise<DashboardActivityOverviewCacheDocument> {
+  const generatedAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + CACHE_TTL_MS).toISOString();
+  const cachePath = viewCachePath(scope, DASHBOARD_ACTIVITY_OVERVIEW_VIEW_KEY);
+  const doc: DashboardActivityOverviewCacheDocument = {
+    ok: result.ok,
+    clientSlug: result.clientSlug ?? scope.clientId,
+    activityOverview: result.activityOverview ?? null,
+    message: result.message,
+    viewKey: DASHBOARD_ACTIVITY_OVERVIEW_VIEW_KEY,
+    scopeHash: scope.scopeHash,
+    scopeKey: scope.scopeKey,
+    scopeDefinition: {
+      clientId: scope.clientId,
+      userId: scope.userId,
+      territories: scope.territories,
+      roles: scope.roles,
+    },
+    periodKey: scope.periodKey,
+    businessRulesVersion: BUSINESS_RULES_VERSION,
+    generatedAt,
+    expiresAt,
+    stale: false,
+    staleReason: null,
+    staleDetectedAt: null,
+    cache: {
+      cachePath,
+      scopeHash: scope.scopeHash,
+      scopeKey: scope.scopeKey,
+      viewKey: DASHBOARD_ACTIVITY_OVERVIEW_VIEW_KEY,
+      periodKey: scope.periodKey,
+      businessRulesVersion: BUSINESS_RULES_VERSION,
+      generatedAt,
+      expiresAt,
+      source: 'mssql-refresh',
+      stale: false,
+      staleReason: null,
+      staleDetectedAt: null,
+    },
+  };
+  const sanitizedDoc = toFirestoreJson(doc);
+  await getAdminFirestore().doc(cachePath).set(sanitizedDoc);
+  return sanitizedDoc;
 }
 
 export async function writeDashboardCache(summary: DashboardSummary, scope: DashboardScope, options: { sourceWatermark?: string | null } = {}): Promise<DashboardCacheDocument> {

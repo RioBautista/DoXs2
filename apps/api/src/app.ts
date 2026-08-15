@@ -5,7 +5,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { authenticateUser, loginRequestSchema } from './auth.js';
 import { checkDrupalMySQLConnection, debugDrupalMySQLAuth, debugDrupalMySQLUsersQuery } from './drupal-mysql-auth.js';
 import { clearSessionCookie, createSessionToken, getSessionCookieDiagnostics, getSessionFromRequest, setSessionCookie } from './session.js';
-import { DASHBOARD_VIEW_KEYS, readFreshDashboardCache, resolveDashboardScope, writeDashboardCache } from './dashboard-cache.js';
+import { DASHBOARD_VIEW_KEYS, readFreshDashboardActivityOverviewCache, readFreshDashboardCache, resolveDashboardScope, writeDashboardActivityOverviewCache, writeDashboardCache } from './dashboard-cache.js';
 import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
 import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardActivityOverview, getDashboardCallMapScopeMetadata, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
 import { listReportDefinitions, runReportDefinition } from './report-engine.js';
@@ -181,8 +181,23 @@ export function buildApp() {
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
     const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const scope = resolveDashboardScope(session, effectiveClientSlug, territories);
+
+    try {
+      const cachedActivityOverview = await readFreshDashboardActivityOverviewCache(scope);
+      if (cachedActivityOverview) return reply.status(200).send(cachedActivityOverview);
+    } catch (error) {
+      request.log.warn({ error, cachePath: scope.cachePath, viewKey: DASHBOARD_VIEW_KEYS.activityOverview }, 'Failed to read dashboard activity overview Firestore cache; falling back to MSSQL refresh.');
+    }
+
     const result = await getDashboardActivityOverview(effectiveClientSlug, territories);
-    return reply.status(result.ok ? 200 : 503).send(result);
+    try {
+      const cachedActivityOverview = await writeDashboardActivityOverviewCache(result, scope);
+      return reply.status(result.ok ? 200 : 503).send({ ...result, cache: cachedActivityOverview.cache });
+    } catch (error) {
+      request.log.warn({ error, viewKey: DASHBOARD_VIEW_KEYS.activityOverview }, 'Failed to write dashboard activity overview Firestore cache; returning live result.');
+      return reply.status(result.ok ? 200 : 503).send(result);
+    }
   });
 
 
