@@ -20,10 +20,8 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
   const [selectedTerritory, setSelectedTerritory] = useState(initial.get('territory') ?? '');
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [doctors, setDoctors] = useState<DoctorDirectoryRow[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isIncrementallyLoading, setIsIncrementallyLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [territoryCount, setTerritoryCount] = useState(0);
   const [totals, setTotals] = useState<DoctorDirectoryResponse['totals']>();
@@ -56,42 +54,51 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
 
     let cancelled = false;
     setIsLoading(true);
+    setIsIncrementallyLoading(false);
+    setDoctors([]);
     setError(null);
-    void getDoctors({ territory: selectedTerritory, letter: letter || undefined, search: debouncedSearch || undefined, limit: 50 })
-      .then((result) => {
-        if (cancelled) return;
-        setDoctors(result.doctors);
-        setNextCursor(result.nextCursor);
-        setHasMore(result.hasMore);
-        setTerritoryCount(result.territoryCount);
-        setTotals(result.totals);
-      })
-      .catch((reason) => {
-        if (cancelled) return;
-        setDoctors([]);
-        setNextCursor(null);
-        setHasMore(false);
-        setError(reason instanceof Error ? reason.message : 'Doctor directory request failed.');
-      })
-      .finally(() => { if (!cancelled) setIsLoading(false); });
+    setTotals(undefined);
+
+    void (async () => {
+      let cursor: string | undefined;
+      let firstBatch = true;
+      try {
+        do {
+          const result = await getDoctors({
+            territory: selectedTerritory,
+            letter: letter || undefined,
+            search: debouncedSearch || undefined,
+            cursor,
+            limit: 10,
+          });
+          if (cancelled) return;
+
+          setDoctors((current) => firstBatch ? result.doctors : [...current, ...result.doctors]);
+          setTerritoryCount(result.territoryCount);
+          setTotals(result.totals);
+          cursor = result.nextCursor ?? undefined;
+
+          if (firstBatch) {
+            firstBatch = false;
+            setIsLoading(false);
+          }
+          setIsIncrementallyLoading(result.hasMore);
+
+          if (result.hasMore) {
+            await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+          }
+        } while (!cancelled && cursor);
+      } catch (reason) {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Doctor directory request failed.');
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+          setIsIncrementallyLoading(false);
+        }
+      }
+    })();
     return () => { cancelled = true; };
   }, [letter, debouncedSearch, selectedTerritory]);
-
-  async function loadMore() {
-    if (!nextCursor || isLoadingMore) return;
-    setIsLoadingMore(true);
-    setError(null);
-    try {
-      const result = await getDoctors({ territory: selectedTerritory, letter: letter || undefined, search: debouncedSearch || undefined, cursor: nextCursor, limit: 50 });
-      setDoctors((current) => [...current, ...result.doctors]);
-      setNextCursor(result.nextCursor);
-      setHasMore(result.hasMore);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not load more doctors.');
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }
 
   const loadedDayTotals = weekLabels.map((_, weekIndex) => [1, 2, 3, 4, 5].map(
     (day) => doctors.filter((doctor) => doctor.visitDays[weekIndex] === day).length,
@@ -131,7 +138,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3 text-xs text-slate-500">
-          <span>{isLoading ? 'Loading doctors…' : `${doctors.length} doctor-territory record${doctors.length === 1 ? '' : 's'} loaded`}</span>
+          <span>{isLoading ? 'Loading doctors…' : `${doctors.length} doctor-territory record${doctors.length === 1 ? '' : 's'} loaded${isIncrementallyLoading ? '…' : ''}`}</span>
           <span>{selectedTerritory ? `Territory ${selectedTerritory}` : territoryCount ? `${territoryCount} territories in scope` : 'Loading territory scope…'}</span>
         </div>
         {!isLoading && !doctors.length && !error ? <div className="p-10 text-center text-sm text-slate-500">No doctors match this filter.</div> : null}
@@ -181,7 +188,6 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
             {doctors.length ? <div className="grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] border-t border-slate-300 bg-slate-50 text-xs font-bold text-slate-700"><div className="px-4 py-2 text-right">Territory plan total</div><div className="border-l border-slate-200 px-2 py-2 text-center">{grandTotal}</div>{weekLabels.map((week, index) => <div key={week} className="border-l border-slate-200 px-2 py-2 text-center">{dayTotals[index].reduce((sum, count) => sum + count, 0)}</div>)}</div> : null}
           </div>
         </div>
-        {hasMore ? <div className="border-t border-slate-200 p-4 text-center"><button type="button" onClick={() => void loadMore()} disabled={isLoadingMore} className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{isLoadingMore ? 'Loading…' : 'Load more doctors'}</button></div> : null}
       </section>
     </div>
   );
