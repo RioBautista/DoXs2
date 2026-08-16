@@ -4,11 +4,31 @@ import type { DoctorDirectoryResponse, DoctorDirectoryRow } from '@doxs/shared';
 import { connectClientMSSQL, getClientMSSQLConfig } from './mssql-dashboard.js';
 
 export const doctorDirectoryQuerySchema = z.object({
+  territory: z.string().trim().min(1).max(128).optional(),
   letter: z.string().trim().regex(/^[A-Z]$/).optional(),
   search: z.string().trim().max(80).optional(),
   cursor: z.string().trim().max(600).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+
+export async function listDoctorTerritories(clientSlug: string | null): Promise<string[]> {
+  const config = getClientMSSQLConfig(clientSlug);
+  if (!config) throw new Error('Client MSSQL doctor directory is not configured.');
+
+  let pool: sql.ConnectionPool | null = null;
+  try {
+    pool = await connectClientMSSQL(config);
+    const result = await pool.request().query<{ territory_id: string | null }>(`
+      select distinct ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) as territory_id
+      from [dbo].[DOCTOR_CLINIC]
+      where TERRITORY_ID is not null and ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) <> ''
+      order by territory_id
+    `);
+    return result.recordset.map((row) => clean(row.territory_id)).filter(Boolean);
+  } finally {
+    if (pool) await pool.close();
+  }
+}
 
 type DoctorCursor = {
   lastName: string;
@@ -26,6 +46,11 @@ type DoctorRecord = {
   specialty_code: string | null;
   class_code: string | null;
   frequency: number | null;
+  visit_day1: number | null;
+  visit_day2: number | null;
+  visit_day3: number | null;
+  visit_day4: number | null;
+  visit_day5: number | null;
   clinic_address: string | null;
 };
 
@@ -112,6 +137,11 @@ export async function listDoctors(
         nullif(ltrim(rtrim(cast(D.SPECIALTY_CODE as varchar(128)))), '') as specialty_code,
         nullif(ltrim(rtrim(cast(DC.CLASS_CODE as varchar(128)))), '') as class_code,
         try_convert(int, DC.FREQUENCY) as frequency,
+        try_convert(int, DC.VISIT_DAY1) as visit_day1,
+        try_convert(int, DC.VISIT_DAY2) as visit_day2,
+        try_convert(int, DC.VISIT_DAY3) as visit_day3,
+        try_convert(int, DC.VISIT_DAY4) as visit_day4,
+        try_convert(int, DC.VISIT_DAY5) as visit_day5,
         nullif(ltrim(rtrim(cast(DC.CLINIC_ADDRESS as nvarchar(1000)))), '') as clinic_address
       from [dbo].[DOCTOR_CLINIC] DC
       inner join [dbo].[DOCTOR] D on DC.MD_ID = D.MD_ID
@@ -145,6 +175,8 @@ export async function listDoctors(
         specialtyCode: clean(row.specialty_code) || null,
         classCode: clean(row.class_code) || null,
         frequency: row.frequency === null ? null : Number(row.frequency),
+        visitDays: [row.visit_day1, row.visit_day2, row.visit_day3, row.visit_day4, row.visit_day5]
+          .map((day) => day !== null && day >= 1 && day <= 5 ? Number(day) : null) as DoctorDirectoryRow['visitDays'],
         clinicAddress: clean(row.clinic_address) || null,
       };
     });

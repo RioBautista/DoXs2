@@ -14,6 +14,7 @@ export type DoctorDirectoryRow = {
   specialtyCode: string | null;
   classCode: string | null;
   frequency: number | null;
+  visitDays: [number | null, number | null, number | null, number | null, number | null];
   clinicAddress: string | null;
 };
 
@@ -23,8 +24,15 @@ export type DoctorDirectoryResponse = {
   nextCursor: string | null;
   hasMore: boolean;
   generatedAt: string;
-  source: 'mssql';
+  source: 'mssql' | 'firestore-cache';
   territoryCount: number;
+  territoryId?: string;
+  totals?: {
+    byWeekDay: number[][];
+    byWeek: number[];
+    grandTotal: number;
+    doctorCount: number;
+  };
   message?: string;
 };
 
