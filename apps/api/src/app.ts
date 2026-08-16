@@ -503,12 +503,13 @@ export function buildApp() {
       return reply.status(401).send({ ok: false, message: 'Session client does not match this client domain.' });
     }
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
-    const assigned = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const territoryScope = await getCachedClientUserTerritories(effectiveClientSlug, session.username, request.log);
+    const assigned = territoryScope.territories;
     const isManager = session.roles.some((role) => /admin|manager|district|region/i.test(role));
     if (!assigned.length && !isManager) return reply.status(403).send({ ok: false, message: 'No territory scope is assigned to this user.' });
     try {
       const territories = assigned.length ? [...assigned].sort() : await listDoctorTerritories(effectiveClientSlug);
-      return reply.status(200).send({ ok: true, territories });
+      return reply.status(200).send({ ok: true, territories, scope: { source: territoryScope.source, cachePath: territoryScope.cachePath } });
     } catch (error) {
       request.log.error({ error, clientSlug: effectiveClientSlug, username: session.username }, 'doctor territory request failed');
       return reply.status(503).send({ ok: false, message: 'Doctor territories are temporarily unavailable.' });
