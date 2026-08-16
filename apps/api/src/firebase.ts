@@ -3,6 +3,8 @@ import { onRequest } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { buildApp } from './app.js';
 import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
+import { runDoctorTmlCacheRefresh } from './doctor-directory.js';
+import { runUserTerritoryReplicaRefresh } from './user-territory-replica.js';
 
 const app = buildApp();
 const appReady = app.ready();
@@ -83,10 +85,10 @@ export const api = onRequest(
   handleFirebaseRequest,
 );
 
-export const dashboardCacheFreshness = onSchedule(
+export const dashboardCacheFreshnessDaytime = onSchedule(
   {
     region: 'us-central1',
-    schedule: 'every 1 minutes',
+    schedule: '* 8-23 * * *',
     timeZone: 'Asia/Manila',
     timeoutSeconds: 120,
     memory: '256MiB',
@@ -96,6 +98,59 @@ export const dashboardCacheFreshness = onSchedule(
   async () => {
     await appReady;
     const result = await runDashboardCacheFreshnessCheck(app.log);
-    app.log.info({ result }, 'Scheduled dashboard cache freshness check completed.');
+    app.log.info({ result }, 'Scheduled daytime dashboard cache freshness check completed.');
+  },
+);
+
+
+export const dashboardCacheFreshnessOvernight = onSchedule(
+  {
+    region: 'us-central1',
+    schedule: '0 0-7 * * *',
+    timeZone: 'Asia/Manila',
+    timeoutSeconds: 120,
+    memory: '256MiB',
+    maxInstances: 1,
+    secrets: DOXS_API_SECRETS,
+  },
+  async () => {
+    await appReady;
+    const result = await runDashboardCacheFreshnessCheck(app.log);
+    app.log.info({ result }, 'Scheduled overnight dashboard cache freshness check completed.');
+  },
+);
+
+
+export const userTerritoryReplicaRefresh = onSchedule(
+  {
+    region: 'us-central1',
+    schedule: '0 1 * * *',
+    timeZone: 'Asia/Manila',
+    timeoutSeconds: 540,
+    memory: '256MiB',
+    maxInstances: 1,
+    secrets: DOXS_API_SECRETS,
+  },
+  async () => {
+    await appReady;
+    const result = await runUserTerritoryReplicaRefresh(app.log);
+    app.log.info({ result }, 'Scheduled user territory replica refresh completed.');
+  },
+);
+
+export const doctorTmlCacheRefresh = onSchedule(
+  {
+    region: 'us-central1',
+    schedule: '0 0,5,11,17 * * *',
+    timeZone: 'Asia/Manila',
+    timeoutSeconds: 540,
+    memory: '256MiB',
+    maxInstances: 1,
+    secrets: DOXS_API_SECRETS,
+  },
+  async () => {
+    await appReady;
+    const result = await runDoctorTmlCacheRefresh(app.log);
+    app.log.info({ result }, 'Scheduled Doctor/TML cache refresh completed.');
   },
 );

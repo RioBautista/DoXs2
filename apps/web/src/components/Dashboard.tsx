@@ -626,10 +626,19 @@ export function Dashboard({ session }: DashboardProps) {
     };
 
     void (async () => {
-      for (const territoryId of territories) {
-        if (cancelled) return;
-        await loadTerritory(territoryId);
-      }
+      const concurrency = Math.max(1, Math.min(Number(import.meta.env.VITE_DASHBOARD_CALL_MAP_CONCURRENCY ?? 6), territories.length));
+      let nextIndex = 0;
+
+      const worker = async () => {
+        while (!cancelled) {
+          const territoryId = territories[nextIndex];
+          nextIndex += 1;
+          if (!territoryId) return;
+          await loadTerritory(territoryId);
+        }
+      };
+
+      await Promise.all(Array.from({ length: concurrency }, () => worker()));
     })();
 
     return () => {

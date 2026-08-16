@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/ensure-mapbox-token.mjs && tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint ."
   },

@@ -193,6 +193,40 @@ Source values:
 
 The goal is to reduce repeated dashboard hits against MSSQL while preserving freshness visibility.
 
+### Scheduler and freshness policy
+
+Dashboard freshness is driven by Firebase scheduled functions in `apps/api/src/firebase.ts`:
+
+- `dashboardCacheFreshnessDaytime`: every minute from 8:00 AM through 11:59 PM Asia/Manila.
+- `dashboardCacheFreshnessOvernight`: hourly from 12:00 MN through 7:59 AM Asia/Manila.
+- `userTerritoryReplicaRefresh`: daily at 1:00 AM Asia/Manila.
+- `doctorTmlCacheRefresh`: 12:00 MN, 5:00 AM, 11:00 AM, and 5:00 PM Asia/Manila.
+
+The dashboard scheduler reads only ITINERARY rows newer than the stored Firestore watermark where possible. It stores essential call facts under:
+
+```text
+iDoXs_Clients/{clientId}/itineraryCalls/{cycle}/territories/{territoryId}/dates/{date}/calls/{callId}
+```
+
+Essential fields only are retained: cycle, territory, date, visit time, doctor, PSR, itinerary/visit dates, period fields, GPS fields, and source watermark. These documents are the Firestore-side call copy used to reduce repeated broad reads against client MSSQL.
+
+On each scheduler run:
+
+1. Read latest changed ITINERARY watermarks from MSSQL per client using the last Firestore watermark.
+2. Upsert only new/changed essential call records to Firestore.
+3. Mark only scope caches affected by changed territories as stale.
+4. Refresh affected `scopeCaches/*/viewCaches/*` documents so Firestore listeners and dashboards receive cache updates automatically.
+
+The scheduler no longer refreshes every existing dashboard scope on every minute if no affected territory changed.
+
+Doctor/TML cache refresh writes first-page alphabetical cache documents under:
+
+```text
+iDoXs_Clients/{clientId}/doctorTmlCache/global/letters/{A-Z}
+```
+
+These are intended as low-frequency, mostly read-only cache seeds. User/scope-specific Doctor/TML reads should still enforce territory access server-side.
+
 ## Firestore report definitions
 
 Legacy iDoXs reports were PHP files backed by reusable report/pivot classes.

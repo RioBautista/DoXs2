@@ -5,14 +5,73 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { authenticateUser, loginRequestSchema } from './auth.js';
 import { checkDrupalMySQLConnection, debugDrupalMySQLAuth, debugDrupalMySQLUsersQuery } from './drupal-mysql-auth.js';
 import { clearSessionCookie, createSessionToken, getSessionCookieDiagnostics, getSessionFromRequest, setSessionCookie } from './session.js';
-import { DASHBOARD_VIEW_KEYS, readFreshDashboardActivityOverviewCache, readFreshDashboardCache, resolveDashboardScope, writeDashboardActivityOverviewCache, writeDashboardCache } from './dashboard-cache.js';
+import { DASHBOARD_VIEW_KEYS, readFreshDashboardActivityOverviewCache, readFreshDashboardCache, resolveDashboardScope, viewCachePath, writeDashboardActivityOverviewCache, writeDashboardCache, type DashboardScope } from './dashboard-cache.js';
 import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
 import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardActivityOverview, getDashboardCallMapScopeMetadata, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
 import { listReportDefinitions, runReportDefinition } from './report-engine.js';
 import { getCallMapTerritoryDate } from './call-map-store.js';
 import { doctorDirectoryQuerySchema, listDoctorTerritories } from './doctor-directory.js';
 import { getDoctorTerritoryDirectory } from './doctor-directory-cache.js';
+import { getAdminFirestore } from './firestore-admin.js';
+import { getUserTerritoriesFirestoreFirst } from './user-territory-replica.js';
 
+
+
+const CALL_MAP_SCOPE_CACHE_TTL_MS = Number(process.env.CALL_MAP_SCOPE_CACHE_TTL_MS ?? 60 * 60 * 1000);
+
+function apiNow() {
+  return Date.now();
+}
+
+function apiIso(offsetMs = 0) {
+  return new Date(apiNow() + offsetMs).toISOString();
+}
+
+function safeDocSegment(value: string | null | undefined, fallback = 'unknown') {
+  return String(value || fallback).replace(/[^a-zA-Z0-9_-]/g, '_') || fallback;
+}
+
+async function getCachedClientUserTerritories(clientSlug: string | null | undefined, userId: string, logger: FastifyRequest['log']) {
+  try {
+    return await getUserTerritoriesFirestoreFirst(clientSlug, userId);
+  } catch (error) {
+    logger.warn({ error, clientSlug, userId }, 'Failed to read Firestore user territory replica; falling back to MSSQL directly.');
+    const territories = await getClientUserTerritories(clientSlug, userId);
+    return { territories, source: 'mssql-direct-fallback' as const, cachePath: null };
+  }
+}
+
+type CachedCallMapScope = {
+  ok: boolean;
+  clientSlug?: string | null;
+  cycle: Awaited<ReturnType<typeof getDashboardCallMapScopeMetadata>>['cycle'];
+  selectedDate: string;
+  territories: string[];
+  message?: string;
+  cache?: { cachePath: string; source: 'firestore-cache' | 'mssql-refresh'; generatedAt: string; expiresAt: string };
+};
+
+async function readCallMapScopeCache(scope: DashboardScope): Promise<CachedCallMapScope | null> {
+  const cachePath = viewCachePath(scope, 'callMapScope');
+  const snapshot = await getAdminFirestore().doc(cachePath).get();
+  if (!snapshot.exists) return null;
+  const data = snapshot.data() as CachedCallMapScope | undefined;
+  if (!data?.cache?.expiresAt || Date.parse(data.cache.expiresAt) <= Date.now()) return null;
+  return { ...data, cache: { ...data.cache, source: 'firestore-cache' } };
+}
+
+async function writeCallMapScopeCache(scope: DashboardScope, metadata: Awaited<ReturnType<typeof getDashboardCallMapScopeMetadata>>, territories: string[]): Promise<CachedCallMapScope> {
+  const generatedAt = apiIso();
+  const expiresAt = apiIso(CALL_MAP_SCOPE_CACHE_TTL_MS);
+  const cachePath = viewCachePath(scope, 'callMapScope');
+  const doc: CachedCallMapScope = {
+    ...metadata,
+    territories,
+    cache: { cachePath, source: 'mssql-refresh', generatedAt, expiresAt },
+  };
+  await getAdminFirestore().doc(cachePath).set(JSON.parse(JSON.stringify(doc)), { merge: true });
+  return doc;
+}
 
 function clientSlugFromRequest(request: { headers: Record<string, string | string[] | undefined> }) {
   const firebaseHostingHost = request.headers['x-fh-requested-host'];
@@ -106,7 +165,8 @@ export function buildApp() {
     }
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
-    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const territoryScope = await getCachedClientUserTerritories(effectiveClientSlug, session.username, request.log);
+    const territories = territoryScope.territories;
     const scope = resolveDashboardScope(session, effectiveClientSlug, territories);
     const { getAuth } = await import('firebase-admin/auth');
     const token = await getAuth().createCustomToken(`${scope.clientId}:${scope.userId}`, {
@@ -134,7 +194,8 @@ export function buildApp() {
     }
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
-    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const territoryScope = await getCachedClientUserTerritories(effectiveClientSlug, session.username, request.log);
+    const territories = territoryScope.territories;
     const scope = resolveDashboardScope(session, effectiveClientSlug, territories);
 
     try {
@@ -181,7 +242,8 @@ export function buildApp() {
     }
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
-    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const territoryScope = await getCachedClientUserTerritories(effectiveClientSlug, session.username, request.log);
+    const territories = territoryScope.territories;
     const scope = resolveDashboardScope(session, effectiveClientSlug, territories);
 
     try {
@@ -215,14 +277,40 @@ export function buildApp() {
     }
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
-    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const territoryScope = await getCachedClientUserTerritories(effectiveClientSlug, session.username, request.log);
+    const territories = territoryScope.territories;
+    const scope = resolveDashboardScope(session, effectiveClientSlug, territories);
+
+    try {
+      const cachedScope = await readCallMapScopeCache(scope);
+      if (cachedScope) {
+        const effectiveTerritories = territories.length > 0 ? territories : cachedScope.territories;
+        return reply.status(cachedScope.ok ? 200 : 503).send({
+          ...cachedScope,
+          territories: effectiveTerritories,
+          message: cachedScope.ok ? 'Call map scope loaded from Firestore. Territory map data is loaded independently.' : cachedScope.message,
+        });
+      }
+    } catch (error) {
+      request.log.warn({ error, cachePath: viewCachePath(scope, 'callMapScope') }, 'Failed to read Firestore call map scope cache; falling back to MSSQL.');
+    }
+
     const metadata = await getDashboardCallMapScopeMetadata(effectiveClientSlug, territories);
     const effectiveTerritories = territories.length > 0 ? territories : metadata.territories;
-    return reply.status(metadata.ok ? 200 : 503).send({
-      ...metadata,
-      territories: effectiveTerritories,
-      message: metadata.ok ? 'Call map scope loaded. Territory map data is loaded independently.' : metadata.message,
-    });
+    try {
+      const cachedScope = await writeCallMapScopeCache(scope, metadata, effectiveTerritories);
+      return reply.status(metadata.ok ? 200 : 503).send({
+        ...cachedScope,
+        message: metadata.ok ? 'Call map scope loaded from MSSQL and cached. Territory map data is loaded independently.' : metadata.message,
+      });
+    } catch (error) {
+      request.log.warn({ error, cachePath: viewCachePath(scope, 'callMapScope') }, 'Failed to write Firestore call map scope cache.');
+      return reply.status(metadata.ok ? 200 : 503).send({
+        ...metadata,
+        territories: effectiveTerritories,
+        message: metadata.ok ? 'Call map scope loaded. Territory map data is loaded independently.' : metadata.message,
+      });
+    }
   });
 
   app.get('/api/dashboard/call-map/territory/:territoryId', async (request, reply) => {
@@ -395,7 +483,8 @@ export function buildApp() {
     }
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
-    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const territoryScope = await getCachedClientUserTerritories(effectiveClientSlug, session.username, request.log);
+    const territories = territoryScope.territories;
     const reports = await listReportDefinitions({
       username: session.username,
       roles: session.roles,
@@ -442,7 +531,8 @@ export function buildApp() {
     }
 
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
-    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const territoryScope = await getCachedClientUserTerritories(effectiveClientSlug, session.username, request.log);
+    const territories = territoryScope.territories;
     const isManager = session.roles.some((role) => /admin|manager|district|region/i.test(role));
     if (!territories.length && !isManager) {
       return reply.status(403).send({ ok: false, message: 'No territory scope is assigned to this user.' });
@@ -477,7 +567,8 @@ export function buildApp() {
 
     const params = request.params as { reportId?: string };
     const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
-    const territories = await getClientUserTerritories(effectiveClientSlug, session.username);
+    const territoryScope = await getCachedClientUserTerritories(effectiveClientSlug, session.username, request.log);
+    const territories = territoryScope.territories;
     try {
       const result = await runReportDefinition(params.reportId ?? '', {
         username: session.username,

@@ -1,6 +1,9 @@
 import sql from 'mssql';
+import type { FastifyBaseLogger } from 'fastify';
+import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import type { DoctorDirectoryResponse, DoctorDirectoryRow } from '@doxs/shared';
+import { getAdminFirestore } from './firestore-admin.js';
 import { connectClientMSSQL, getClientMSSQLConfig } from './mssql-dashboard.js';
 
 export const doctorDirectoryQuerySchema = z.object({
@@ -195,4 +198,54 @@ export async function listDoctors(
   } finally {
     if (pool) await pool.close();
   }
+}
+
+
+const DEFAULT_DOCTOR_CACHE_CLIENTS = ['wert', 'oxford'];
+const DOCTOR_CACHE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+function configuredDoctorCacheClients() {
+  return (process.env.DOCTOR_TML_CACHE_CLIENTS ?? DEFAULT_DOCTOR_CACHE_CLIENTS.join(','))
+    .split(',')
+    .map((client) => client.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export async function runDoctorTmlCacheRefresh(logger: FastifyBaseLogger) {
+  if (process.env.DOCTOR_TML_CACHE_ENABLED === 'false') return { skipped: true, reason: 'disabled' };
+
+  const db = getAdminFirestore();
+  const results = [] as Array<{ clientId: string; refreshedLetters: number; skippedLetters: number }>;
+  for (const clientId of configuredDoctorCacheClients()) {
+    let refreshedLetters = 0;
+    let skippedLetters = 0;
+    for (const letter of DOCTOR_CACHE_LETTERS) {
+      try {
+        const response = await listDoctors(clientId, [], { letter, limit: 100 });
+        await db.doc(`iDoXs_Clients/${clientId}/doctorTmlCache/global/letters/${letter}`).set({
+          ...response,
+          source: 'mssql-refresh',
+          clientId,
+          scopeKey: 'global',
+          letter,
+          search: null,
+          cursor: null,
+          cacheVersion: 1,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        refreshedLetters += 1;
+      } catch (error) {
+        skippedLetters += 1;
+        logger.warn({ error, clientId, letter }, 'Failed to refresh Doctor/TML Firestore cache letter.');
+      }
+    }
+    await db.doc(`iDoXs_Clients/${clientId}/systemState/doctorTmlCache`).set({
+      clientId,
+      refreshedLetters,
+      skippedLetters,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    results.push({ clientId, refreshedLetters, skippedLetters });
+  }
+  return { skipped: false, results };
 }

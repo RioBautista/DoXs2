@@ -899,6 +899,23 @@ export type TerritoryWatermark = {
   latestVisitDate: string;
 };
 
+export type ItineraryCallChange = {
+  callKey: string;
+  territoryId: string;
+  doctorId: string | null;
+  psrId: string | null;
+  itineraryDate: string | null;
+  visitDate: string | null;
+  month: string | null;
+  year: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  cycle: string;
+  callDate: string;
+  visitTime: string | null;
+  sourceWatermark: string;
+};
+
 export async function getItineraryTerritoryWatermarks(clientSlug?: string | null, changedSinceIso?: string | null): Promise<TerritoryWatermark[]> {
   const config = getClientMSSQLConfig(clientSlug);
   if (!config) return [];
@@ -936,6 +953,150 @@ export async function getItineraryTerritoryWatermarks(clientSlug?: string | null
         territoryId: row.territory_id,
         latestVisitDate: row.latest_visit_date instanceof Date ? row.latest_visit_date.toISOString() : new Date(row.latest_visit_date).toISOString(),
       }));
+  } catch {
+    return [];
+  } finally {
+    if (pool) await pool.close();
+  }
+}
+
+
+export async function getItineraryCallChanges(clientSlug?: string | null, changedSinceIso?: string | null, limit = 2000): Promise<ItineraryCallChange[]> {
+  // Avoid an expensive historical backfill on first run; first run establishes the Firestore watermark.
+  if (!changedSinceIso) return [];
+
+  const config = getClientMSSQLConfig(clientSlug);
+  if (!config) return [];
+
+  let pool: sql.ConnectionPool | null = null;
+  try {
+    pool = await connectClientMSSQL(config);
+    const hasItinerary = await tableExists(pool, 'dbo', 'ITINERARY');
+    const requiredColumns = ['TERRITORY_ID'];
+    for (const column of requiredColumns) {
+      if (!hasItinerary || !(await columnExists(pool, 'dbo', 'ITINERARY', column))) return [];
+    }
+
+    const candidateColumns = ['last_updated', 'sent_update_date', 'VISIT_DATE', 'ITINERARY_DATE'];
+    const availableColumns = [] as string[];
+    for (const column of candidateColumns) {
+      if (await columnExists(pool, 'dbo', 'ITINERARY', column)) availableColumns.push(column);
+    }
+    if (availableColumns.length === 0) return [];
+
+    const optionalColumns = ['MD_ID', 'PSR_ID', 'ITINERARY_DATE', 'VISIT_DATE', 'MONTH', 'YEAR', 'latitude', 'longitude'];
+    const hasColumn = new Map<string, boolean>();
+    for (const column of optionalColumns) hasColumn.set(column, await columnExists(pool, 'dbo', 'ITINERARY', column));
+    const selectColumn = (column: string, alias: string) => hasColumn.get(column) ? `ltrim(rtrim(cast([${column}] as varchar(128)))) as ${alias}` : `cast(null as varchar(128)) as ${alias}`;
+    const dateColumn = (column: string, alias: string) => hasColumn.get(column) ? `try_convert(datetime2, [${column}]) as ${alias}` : `cast(null as datetime2) as ${alias}`;
+    const watermarkExpression = `coalesce(${availableColumns.map((column) => `try_convert(datetime2, [${column}])`).join(', ')})`;
+
+    const request = pool.request().input('rowLimit', sql.Int, Math.max(1, Math.min(limit, 5000)));
+    if (changedSinceIso) request.input('changedSince', sql.DateTime2, new Date(changedSinceIso));
+    const result = await request.query<{
+      territory_id: string | null;
+      md_id: string | null;
+      psr_id: string | null;
+      itinerary_date: Date | string | null;
+      visit_date: Date | string | null;
+      month: string | null;
+      year: string | null;
+      latitude: string | null;
+      longitude: string | null;
+      source_watermark: Date | string;
+    }>(`
+      select top (@rowLimit)
+        ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))) as territory_id,
+        ${selectColumn('MD_ID', 'md_id')},
+        ${selectColumn('PSR_ID', 'psr_id')},
+        ${dateColumn('ITINERARY_DATE', 'itinerary_date')},
+        ${dateColumn('VISIT_DATE', 'visit_date')},
+        ${selectColumn('MONTH', 'month')},
+        ${selectColumn('YEAR', 'year')},
+        ${selectColumn('latitude', 'latitude')},
+        ${selectColumn('longitude', 'longitude')},
+        ${watermarkExpression} as source_watermark
+      from [dbo].[ITINERARY]
+      where [TERRITORY_ID] is not null
+        and ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))) <> ''
+        and ${watermarkExpression} is not null
+        ${changedSinceIso ? `and ${watermarkExpression} > @changedSince` : ''}
+      order by ${watermarkExpression} asc
+    `);
+
+    const isoOrNull = (value: Date | string | null) => value ? (value instanceof Date ? value.toISOString() : new Date(value).toISOString()) : null;
+    return result.recordset
+      .filter((row) => row.territory_id && row.source_watermark)
+      .map((row, index) => {
+        const sourceWatermark = row.source_watermark instanceof Date ? row.source_watermark.toISOString() : new Date(row.source_watermark).toISOString();
+        const territoryId = String(row.territory_id ?? '').trim();
+        const visitDate = isoOrNull(row.visit_date);
+        const itineraryDate = isoOrNull(row.itinerary_date);
+        const doctorId = row.md_id ? String(row.md_id).trim() : null;
+        const psrId = row.psr_id ? String(row.psr_id).trim() : null;
+        const month = row.month ? String(row.month).trim() : null;
+        const year = row.year ? String(row.year).trim() : null;
+        const callDate = (visitDate ?? itineraryDate ?? sourceWatermark).slice(0, 10);
+        const visitTime = visitDate ? visitDate.slice(11, 19).replaceAll(':', '') : null;
+        const cycle = year && month ? `${year}-${month.padStart(2, '0')}` : callDate.slice(0, 7);
+        const callKey = [cycle, territoryId, callDate, doctorId ?? 'unknown-md', psrId ?? 'unknown-psr', visitDate ?? itineraryDate ?? sourceWatermark, index].join('|');
+        return {
+          callKey,
+          territoryId,
+          doctorId,
+          psrId,
+          itineraryDate,
+          visitDate,
+          month,
+          year,
+          latitude: row.latitude ? String(row.latitude).trim() : null,
+          longitude: row.longitude ? String(row.longitude).trim() : null,
+          cycle,
+          callDate,
+          visitTime,
+          sourceWatermark,
+        };
+      });
+  } catch {
+    return [];
+  } finally {
+    if (pool) await pool.close();
+  }
+}
+
+
+export type UserTerritoryAssignment = {
+  userId: string;
+  territoryId: string;
+};
+
+export async function listClientUserTerritoryAssignments(clientSlug: string | null | undefined): Promise<UserTerritoryAssignment[]> {
+  const config = getClientMSSQLConfig(clientSlug);
+  if (!config) return [];
+
+  let pool: sql.ConnectionPool | null = null;
+  try {
+    pool = await connectClientMSSQL(config);
+    const hasView = await tableExists(pool, 'dbo', 'vw_user_territories');
+    const hasTable = await tableExists(pool, 'dbo', 'user_territories');
+    const tableName = hasView ? '[dbo].[vw_user_territories]' : hasTable ? '[dbo].[user_territories]' : null;
+    if (!tableName) return [];
+
+    const result = await pool.request().query<{ userid: string | null; territory_id: string | null }>(`
+      select distinct
+        ltrim(rtrim(cast(userid as varchar(128)))) as userid,
+        ltrim(rtrim(cast(territory_id as varchar(128)))) as territory_id
+      from ${tableName}
+      where userid is not null
+        and ltrim(rtrim(cast(userid as varchar(128)))) <> ''
+        and territory_id is not null
+        and ltrim(rtrim(cast(territory_id as varchar(128)))) <> ''
+      order by userid, territory_id
+    `);
+
+    return result.recordset
+      .map((row) => ({ userId: row.userid?.trim() ?? '', territoryId: row.territory_id?.trim() ?? '' }))
+      .filter((row) => row.userId && row.territoryId);
   } catch {
     return [];
   } finally {

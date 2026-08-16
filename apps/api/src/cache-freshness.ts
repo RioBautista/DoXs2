@@ -1,13 +1,15 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { createHash } from 'node:crypto';
+import { FieldValue, Timestamp, WriteBatch } from 'firebase-admin/firestore';
 import { getAdminFirestore } from './firestore-admin.js';
-import { getDashboardActivityOverview, getDashboardSummary, getItineraryTerritoryWatermarks } from './mssql-dashboard.js';
+import { getDashboardActivityOverview, getDashboardSummary, getItineraryCallChanges, getItineraryTerritoryWatermarks, type ItineraryCallChange } from './mssql-dashboard.js';
 import { DASHBOARD_VIEW_KEYS, type DashboardScope, viewCachePath, writeDashboardActivityOverviewCache, writeDashboardCache } from './dashboard-cache.js';
 
 const DEFAULT_CLIENTS = ['wert', 'oxford'];
 const DEFAULT_INTERVAL_MS = 60_000;
 const LEASE_TTL_MS = Number(process.env.DASHBOARD_CACHE_LEASE_TTL_MS ?? 120_000);
 const CHECK_TIMEOUT_MS = Number(process.env.DASHBOARD_CACHE_WATCH_TIMEOUT_MS ?? 45_000);
+const CALL_CHANGE_LIMIT = Number(process.env.DASHBOARD_CACHE_CALL_CHANGE_LIMIT ?? 2000);
 const VIEW_KEY = DASHBOARD_VIEW_KEYS.summary;
 
 type FreshnessState = {
@@ -79,6 +81,58 @@ async function acquireLease(instanceId: string) {
   });
 }
 
+function safePathSegment(value: string | null | undefined, fallback = 'unknown') {
+  return String(value || fallback).replace(/[^a-zA-Z0-9_-]/g, '_') || fallback;
+}
+
+function stableCallId(change: ItineraryCallChange) {
+  const hash = createHash('sha1').update(change.callKey).digest('hex').slice(0, 16);
+  return `${safePathSegment(change.visitTime, 'notime')}_${hash}`;
+}
+
+function itineraryCallPath(clientId: string, change: ItineraryCallChange) {
+  return [
+    `iDoXs_Clients/${safePathSegment(clientId)}/itineraryCalls/${safePathSegment(change.cycle, 'unknown-cycle')}`,
+    `territories/${safePathSegment(change.territoryId, 'unknown-territory')}`,
+    `dates/${safePathSegment(change.callDate, 'unknown-date')}`,
+    `calls/${stableCallId(change)}`,
+  ].join('/');
+}
+
+async function commitBatch(batch: WriteBatch, writes: number) {
+  if (writes > 0) await batch.commit();
+}
+
+async function upsertEssentialItineraryCalls(clientId: string, changes: ItineraryCallChange[]) {
+  if (changes.length === 0) return { upsertedCount: 0, latestSourceWatermark: null as string | null };
+  const db = getAdminFirestore();
+  let batch = db.batch();
+  let writes = 0;
+  let upsertedCount = 0;
+  let latestSourceWatermark: string | null = null;
+
+  for (const change of changes) {
+    const ref = db.doc(itineraryCallPath(clientId, change));
+    batch.set(ref, {
+      ...change,
+      clientId,
+      cachePath: ref.path,
+      cacheVersion: 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    writes += 1;
+    upsertedCount += 1;
+    if (!latestSourceWatermark || change.sourceWatermark > latestSourceWatermark) latestSourceWatermark = change.sourceWatermark;
+    if (writes >= 450) {
+      await commitBatch(batch, writes);
+      batch = db.batch();
+      writes = 0;
+    }
+  }
+  await commitBatch(batch, writes);
+  return { upsertedCount, latestSourceWatermark };
+}
+
 async function refreshDashboardScopeCaches(clientId: string, changedTerritories: string[], sourceWatermark: string | null, logger: FastifyBaseLogger) {
   const db = getAdminFirestore();
   const changed = new Set(changedTerritories);
@@ -126,6 +180,11 @@ async function refreshDashboardScopeCaches(clientId: string, changedTerritories:
           },
         }, { merge: true });
       }
+    }
+
+    if (!changedScope) {
+      skippedCount += 1;
+      continue;
     }
 
     try {
@@ -176,7 +235,11 @@ export async function runDashboardCacheFreshnessCheck(logger: FastifyBaseLogger)
     const state = (stateSnap.data() ?? {}) as FreshnessState;
     const previous = state.territoryWatermarks ?? {};
     const changedSinceIso = state.lastGlobalWatermark ?? null;
-    const current = await withTimeout(getItineraryTerritoryWatermarks(clientId, changedSinceIso), CHECK_TIMEOUT_MS, `Timed out reading itinerary watermarks for ${clientId}.`);
+    const [current, callChanges] = await Promise.all([
+      withTimeout(getItineraryTerritoryWatermarks(clientId, changedSinceIso), CHECK_TIMEOUT_MS, `Timed out reading itinerary watermarks for ${clientId}.`),
+      withTimeout(getItineraryCallChanges(clientId, changedSinceIso, CALL_CHANGE_LIMIT), CHECK_TIMEOUT_MS, `Timed out reading itinerary call changes for ${clientId}.`),
+    ]);
+    const callSync = await upsertEssentialItineraryCalls(clientId, callChanges);
 
     const changedTerritories = current
       .filter((row) => !previous[row.territoryId] || row.latestVisitDate > previous[row.territoryId])
@@ -184,7 +247,7 @@ export async function runDashboardCacheFreshnessCheck(logger: FastifyBaseLogger)
 
     const currentDeltaMap = Object.fromEntries(current.map((row) => [row.territoryId, row.latestVisitDate]));
     const currentMap = { ...previous, ...currentDeltaMap };
-    const sourceWatermark = maxIso(current.filter((row) => changedTerritories.includes(row.territoryId)).map((row) => row.latestVisitDate));
+    const sourceWatermark = callSync.latestSourceWatermark ?? maxIso(current.filter((row) => changedTerritories.includes(row.territoryId)).map((row) => row.latestVisitDate));
     const lastGlobalWatermark = maxIso([state.lastGlobalWatermark ?? '', ...Object.values(currentMap)].filter(Boolean));
 
     if (changedTerritories.length > 0) {
@@ -203,10 +266,15 @@ export async function runDashboardCacheFreshnessCheck(logger: FastifyBaseLogger)
       lastChangedTerritories: changedTerritories,
       lastSourceWatermark: sourceWatermark,
       lastGlobalWatermark,
+      itineraryCalls: {
+        upsertedCount: callSync.upsertedCount,
+        latestSourceWatermark: callSync.latestSourceWatermark,
+        limit: CALL_CHANGE_LIMIT,
+      },
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
 
-    logger.info({ clientId, changedSinceIso, watermarkCount: current.length, changedTerritories: changedTerritories.length, staleCount, refreshedCount, skippedCount, lastGlobalWatermark }, 'Itinerary freshness client check completed.');
+    logger.info({ clientId, changedSinceIso, watermarkCount: current.length, itineraryCallsUpserted: callSync.upsertedCount, changedTerritories: changedTerritories.length, staleCount, refreshedCount, skippedCount, lastGlobalWatermark }, 'Itinerary freshness client check completed.');
     results.push({ clientId, changedTerritories: changedTerritories.length, staleCount, refreshedCount, skippedCount });
   }
 
