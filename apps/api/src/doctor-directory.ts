@@ -201,7 +201,7 @@ export async function listDoctors(
 }
 
 
-const DEFAULT_DOCTOR_CACHE_CLIENTS = ['wert', 'oxford'];
+const DEFAULT_DOCTOR_CACHE_CLIENTS = ['wert', 'oxford', 'demo'];
 const DOCTOR_CACHE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
 function configuredDoctorCacheClients() {

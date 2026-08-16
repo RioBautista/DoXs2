@@ -5,7 +5,7 @@ import { getAdminFirestore } from './firestore-admin.js';
 import { getDashboardActivityOverview, getDashboardSummary, getItineraryCallChanges, getItineraryTerritoryWatermarks, type ItineraryCallChange } from './mssql-dashboard.js';
 import { DASHBOARD_VIEW_KEYS, type DashboardScope, viewCachePath, writeDashboardActivityOverviewCache, writeDashboardCache } from './dashboard-cache.js';
 
-const DEFAULT_CLIENTS = ['wert', 'oxford'];
+const DEFAULT_CLIENTS = ['wert', 'oxford', 'demo'];
 const DEFAULT_INTERVAL_MS = 60_000;
 const LEASE_TTL_MS = Number(process.env.DASHBOARD_CACHE_LEASE_TTL_MS ?? 120_000);
 const CHECK_TIMEOUT_MS = Number(process.env.DASHBOARD_CACHE_WATCH_TIMEOUT_MS ?? 45_000);

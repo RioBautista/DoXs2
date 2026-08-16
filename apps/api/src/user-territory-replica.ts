@@ -171,7 +171,7 @@ export async function replicateUserTerritoriesForClient(clientSlug: string) {
 
 
 export function configuredUserTerritoryReplicaClients() {
-  return (process.env.USER_TERRITORY_REPLICA_CLIENTS ?? process.env.DASHBOARD_CACHE_WATCH_CLIENTS ?? 'wert,oxford')
+  return (process.env.USER_TERRITORY_REPLICA_CLIENTS ?? process.env.DASHBOARD_CACHE_WATCH_CLIENTS ?? 'wert,oxford,demo')
     .split(',')
     .map((client) => client.trim().toLowerCase())
     .filter(Boolean);
