@@ -109,7 +109,19 @@ export async function authenticateAgainstDrupalMySQL(payload: LoginRequest): Pro
       return { ok: false, status: 401, message: 'Invalid username or password.' };
     }
 
-    const roles: string[] = [];
+    const rolesTable = prefixedTable(config, 'role');
+    const usersRolesTable = prefixedTable(config, 'users_roles');
+    const roleRows = await withConnectionTimeout(connection, query<DrupalRoleRow[]>(
+      `select r.name
+       from ${usersRolesTable} ur
+       inner join ${rolesTable} r on r.rid = ur.rid
+       where ur.uid = ?
+       order by r.name`,
+      [user.uid],
+    ), dbTimeoutMs, 'Timed out querying Drupal user roles.');
+    const roles = roleRows
+      .map((role) => String(role.name || '').trim())
+      .filter(Boolean);
 
     return {
       ok: true,
