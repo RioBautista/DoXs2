@@ -210,11 +210,18 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
   const generatedLabel = result?.generatedAt ? new Date(result.generatedAt).toLocaleString() : null;
   const outputShellClass = isOutputFullscreen
     ? 'fixed inset-0 z-50 flex flex-col rounded-none border-0 bg-white shadow-2xl print:static print:block print:shadow-none'
-    : 'rounded-2xl border border-slate-200 bg-white shadow-sm print:border-0 print:shadow-none';
-  const outputBodyClass = isOutputFullscreen ? 'flex min-h-0 flex-1 flex-col bg-white p-6 print:p-0' : 'bg-white p-4 print:p-0';
+    : 'min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm print:border-0 print:shadow-none';
+  const outputBodyClass = isOutputFullscreen ? 'flex min-h-0 flex-1 flex-col bg-white p-6 print:p-0' : 'min-w-0 bg-white p-4 print:p-0';
   const tableContainerClass = isOutputFullscreen
     ? 'min-h-0 flex-1 overflow-auto border border-slate-300 print:max-h-none print:overflow-visible'
-    : 'max-h-[65vh] overflow-auto border border-slate-300 print:max-h-none print:overflow-visible';
+    : 'max-h-[65vh] max-w-full overflow-auto overscroll-contain border border-slate-300 print:max-h-none print:overflow-visible';
+  const tableClass = isOutputFullscreen
+    ? 'min-w-full border-collapse bg-white font-[Arial] text-[10px] leading-tight text-black'
+    : 'w-full min-w-max border-collapse bg-white font-[Arial] text-[8.5px] leading-tight text-black';
+  const headerCellClass = isOutputFullscreen ? 'px-2 py-1.5 text-[12px]' : 'px-1.5 py-1 text-[9px]';
+  const dataCellClass = isOutputFullscreen ? 'px-2 py-1' : 'px-1.5 py-0.5';
+  const numberCellClass = isOutputFullscreen ? 'text-[12px]' : 'text-[9px]';
+  const textCellClass = isOutputFullscreen ? 'text-[10pt]' : 'text-[9px]';
 
   return (
     <div className="space-y-6">
@@ -279,7 +286,7 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
           )}
         </aside>
 
-        <section className="space-y-6">
+        <section className="min-w-0 space-y-6">
           <form className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" onSubmit={handleRun}>
             {selectedReport ? (
               <>
@@ -356,27 +363,27 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
                   <p className="mt-1 text-xs text-slate-500 print:text-black">{clientName}{generatedLabel ? ` · ${generatedLabel}` : ''}</p>
                 </div>
                 <div id="tbl-container" className={tableContainerClass}>
-                  <table id="tbl" className="min-w-full border-collapse bg-white font-[Arial] text-[10px] leading-tight text-black">
+                  <table id="tbl" className={tableClass}>
                     <thead>
                       {hasGroupedOutput ? (
                         <>
                           <tr>
                             {rowHeaderColumns.map((column) => (
-                              <th key={column.id} rowSpan={2} id="ctitle" className={`sticky top-0 z-10 whitespace-nowrap border border-white bg-[navy] px-2 py-1.5 ${alignClass(column.align)} text-center text-[12px] font-bold uppercase text-white print:static`}>{column.label}</th>
+                              <th key={column.id} rowSpan={2} id="ctitle" className={`sticky top-0 z-10 whitespace-nowrap border border-white bg-[navy] ${headerCellClass} ${alignClass(column.align)} text-center font-bold uppercase text-white print:static`}>{column.label}</th>
                             ))}
-                            <th colSpan={ctdColumns.length} className={`sticky top-0 z-10 whitespace-nowrap border border-white px-2 py-1.5 text-center text-[12px] font-bold uppercase text-white print:static ${groupHeaderClass('ctd')}`}>CTD</th>
-                            <th colSpan={ytdColumns.length} className={`sticky top-0 z-10 whitespace-nowrap border border-white px-2 py-1.5 text-center text-[12px] font-bold uppercase text-white print:static ${groupHeaderClass('ytd')}`}>YTD</th>
+                            <th colSpan={ctdColumns.length} className={`sticky top-0 z-10 whitespace-nowrap border border-white ${headerCellClass} text-center font-bold uppercase text-white print:static ${groupHeaderClass('ctd')}`}>CTD</th>
+                            <th colSpan={ytdColumns.length} className={`sticky top-0 z-10 whitespace-nowrap border border-white ${headerCellClass} text-center font-bold uppercase text-white print:static ${groupHeaderClass('ytd')}`}>YTD</th>
                           </tr>
                           <tr>
                             {[...ctdColumns, ...ytdColumns].map((column) => (
-                              <th key={column.id} id="ctitle" className={`sticky top-6 z-10 whitespace-nowrap border border-white px-2 py-1.5 ${alignClass(column.align)} text-center text-[12px] font-bold uppercase text-white print:static ${groupHeaderClass(groupForColumn(column.id) ?? 'ytd')}`}>{column.label}</th>
+                              <th key={column.id} id="ctitle" className={`sticky top-6 z-10 whitespace-nowrap border border-white ${headerCellClass} ${alignClass(column.align)} text-center font-bold uppercase text-white print:static ${groupHeaderClass(groupForColumn(column.id) ?? 'ytd')}`}>{column.label}</th>
                             ))}
                           </tr>
                         </>
                       ) : (
                         <tr>
                           {columns.map((column) => (
-                            <th key={column.id} id="ctitle" className={`sticky top-0 z-10 whitespace-nowrap border border-white bg-[navy] px-2 py-1.5 ${alignClass(column.align)} text-center text-[12px] font-bold uppercase text-white print:static`}>{column.label}</th>
+                            <th key={column.id} id="ctitle" className={`sticky top-0 z-10 whitespace-nowrap border border-white bg-[navy] ${headerCellClass} ${alignClass(column.align)} text-center font-bold uppercase text-white print:static`}>{column.label}</th>
                           ))}
                         </tr>
                       )}
@@ -385,7 +392,7 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
                       {rows.map((row, index) => (
                         <tr key={index} className={rowClass(row, index)}>
                           {columns.map((column) => (
-                            <td key={column.id} id={column.type === 'number' ? 'decimal' : 'data'} className={`whitespace-nowrap border border-[#cccccc] px-2 py-1 ${alignClass(column.align)} ${column.type === 'number' ? 'text-right text-[12px]' : 'text-left text-[10pt]'} ${reportRowType(row) !== 'detail' && column.id === 'territory' ? 'text-center' : ''}`}>
+                            <td key={column.id} id={column.type === 'number' ? 'decimal' : 'data'} className={`whitespace-nowrap border border-[#cccccc] ${dataCellClass} ${alignClass(column.align)} ${column.type === 'number' ? `text-right ${numberCellClass}` : `text-left ${textCellClass}`} ${reportRowType(row) !== 'detail' && column.id === 'territory' ? 'text-center' : ''}`}>
                               {formatCell(row[column.id], column.format, column.type)}
                             </td>
                           ))}
