@@ -9,7 +9,8 @@
     "Admin",
     "District Manager",
     "Manager",
-    "Medical Representative"
+    "Medical Representative",
+    "SysAdmin"
   ],
   "outputs": [
     "html",
