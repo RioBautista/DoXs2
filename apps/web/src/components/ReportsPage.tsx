@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Download, FileText, Loader2, Play, Printer, RefreshCcw } from 'lucide-react';
+import { AlertCircle, Download, FileText, Loader2, Maximize2, Minimize2, Play, Printer, RefreshCcw } from 'lucide-react';
 import { listReports, runReport, type ReportDefinitionSummary, type ReportRunResult } from '../api';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -83,6 +83,7 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isOutputFullscreen, setIsOutputFullscreen] = useState(false);
 
   const selectedReport = reports.find((report) => report.id === selectedId) ?? reports[0] ?? null;
   const groupedReports = useMemo(() => groupReports(reports), [reports]);
@@ -110,11 +111,26 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (!isOutputFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsOutputFullscreen(false);
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOutputFullscreen]);
+
   function selectReport(report: ReportDefinitionSummary) {
     setSelectedId(report.id);
     setFilters(initialFilters(report));
     setResult(null);
     setError(null);
+    setIsOutputFullscreen(false);
   }
 
   async function handleRun(event: FormEvent<HTMLFormElement>) {
@@ -154,6 +170,14 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
 
   const columns = result?.report?.columns?.length ? result.report.columns : selectedReport?.columns ?? [];
   const rows = result?.rows ?? [];
+  const generatedLabel = result?.generatedAt ? new Date(result.generatedAt).toLocaleString() : null;
+  const outputShellClass = isOutputFullscreen
+    ? 'fixed inset-0 z-50 flex flex-col rounded-none border-0 bg-white shadow-2xl print:static print:block print:shadow-none'
+    : 'rounded-2xl border border-slate-200 bg-white shadow-sm print:border-0 print:shadow-none';
+  const outputBodyClass = isOutputFullscreen ? 'flex min-h-0 flex-1 flex-col bg-white p-6 print:p-0' : 'bg-white p-4 print:p-0';
+  const tableContainerClass = isOutputFullscreen
+    ? 'min-h-0 flex-1 overflow-auto border border-slate-300 print:max-h-none print:overflow-visible'
+    : 'max-h-[65vh] overflow-auto border border-slate-300 print:max-h-none print:overflow-visible';
 
   return (
     <div className="space-y-6">
@@ -265,7 +289,7 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
             )}
           </form>
 
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm print:border-0 print:shadow-none">
+          <div className={outputShellClass}>
             <div className="border-b border-slate-200 p-5 print:hidden">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -275,23 +299,26 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {result?.generatedAt ? <p className="mr-2 text-xs text-slate-400">Generated {new Date(result.generatedAt).toLocaleString()}</p> : null}
+                  {generatedLabel ? <p className="mr-2 text-xs text-slate-400">Generated {generatedLabel}</p> : null}
                   <button type="button" disabled={!rows.length} onClick={downloadCsv} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                     <Download className="h-3.5 w-3.5" /> Excel / CSV
                   </button>
                   <button type="button" disabled={!rows.length} onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                     <Printer className="h-3.5 w-3.5" /> Print
                   </button>
+                  <button type="button" disabled={!rows.length} onClick={() => setIsOutputFullscreen((current) => !current)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                    {isOutputFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />} {isOutputFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                  </button>
                 </div>
               </div>
             </div>
             {rows.length ? (
-              <div className="bg-white p-4 print:p-0">
+              <div className={outputBodyClass}>
                 <div className="mb-3 text-center">
                   <h4 className="text-lg font-bold uppercase tracking-wide text-slate-950 print:text-black">{selectedReport?.title}</h4>
-                  <p className="mt-1 text-xs text-slate-500 print:text-black">{clientName}{result?.generatedAt ? ` · ${new Date(result.generatedAt).toLocaleString()}` : ''}</p>
+                  <p className="mt-1 text-xs text-slate-500 print:text-black">{clientName}{generatedLabel ? ` · ${generatedLabel}` : ''}</p>
                 </div>
-                <div id="tbl-container" className="max-h-[65vh] overflow-auto border border-slate-300 print:max-h-none print:overflow-visible">
+                <div id="tbl-container" className={tableContainerClass}>
                   <table id="tbl" className="min-w-full border-collapse bg-white font-[Arial] text-[10px] leading-tight text-black">
                     <thead>
                       <tr>
