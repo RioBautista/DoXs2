@@ -1,0 +1,56 @@
+{
+  "title": "Tagging Verification Detail",
+  "description": "Global/core iDoXs drilldown for Tagging Verification, modeled after WERT legacy rptTaggingVerificationDetail2.php.",
+  "category": "Global Reports / Field Execution",
+  "status": "enabled",
+  "clientSlugs": [],
+  "allowedRoles": [
+    "DocCS Admin",
+    "Admin",
+    "District Manager",
+    "Manager",
+    "Medical Representative",
+    "SysAdmin"
+  ],
+  "outputs": ["html", "csv"],
+  "filters": [
+    { "id": "territoryId", "label": "Territory ID", "type": "text", "required": true },
+    { "id": "visitDate", "label": "Visit date", "type": "date", "required": true }
+  ],
+  "columns": [
+    { "id": "date", "label": "Date", "type": "date" },
+    { "id": "time", "label": "Time" },
+    { "id": "md_id", "label": "MD ID" },
+    { "id": "md_name", "label": "MD Name" },
+    { "id": "address", "label": "Address" },
+    { "id": "specialty", "label": "Specialty" },
+    { "id": "frequency", "label": "Frequency" },
+    { "id": "visit_no", "label": "Visit No", "type": "number", "align": "right" },
+    { "id": "signature", "label": "Signature" },
+    { "id": "notes", "label": "Notes" }
+  ],
+  "source": {
+    "type": "mssql",
+    "maxRows": 5000,
+    "territoryScope": { "mode": "required" },
+    "sql": "select top 5000 convert(date, i.VISIT_DATE) as [date], convert(varchar(12), i.VISIT_DATE, 114) as [time], ltrim(rtrim(cast(i.MD_ID as varchar(128)))) as md_id, upper(ltrim(rtrim(concat(isnull(d.LAST_NAME, ''), ', ', isnull(d.FIRST_NAME, ''))))) as md_name, dc.CLINIC_ADDRESS as [address], case when s.SPECIALTY_DESCRIPTION is null then dc.SPECIALTY else s.SPECIALTY_DESCRIPTION end as specialty, concat(ltrim(rtrim(cast(i.FREQUENCY as varchar(32)))), 'x') as frequency, cast(i.VISIT_NUMBER as int) as visit_no, concat(ltrim(rtrim(cast(i.PSR_ID as varchar(128)))), '_', ltrim(rtrim(cast(i.MD_ID as varchar(128)))), '_', cast(pit.[YEAR] as varchar(8)), cast(pit.[MONTH] as varchar(8)), cast(i.VISIT_NUMBER as varchar(8))) as signature, 'Notes' as notes from [dbo].[ITINERARY] i join [dbo].[PSR_ITINERARY] pit on i.PSR_ID = pit.PSR_ID and i.ITINERARY_DATE = pit.ITINERARY_DATE join [dbo].[DOCTOR] d on i.MD_ID = d.MD_ID left join [dbo].[SPECIALTY] s on d.SPECIALTY_CODE = s.SPECIALTY_CODE left join [dbo].[doctor_clinic] dc on dc.MD_ID = d.MD_ID and dc.TERRITORY_ID = i.TERRITORY_ID where ltrim(rtrim(cast(i.TERRITORY_ID as varchar(128)))) = @territoryId and i.VISIT_DATE >= @visitDate and i.VISIT_DATE < dateadd(day, 1, @visitDate) {{territoryPredicate:i.TERRITORY_ID}} order by i.VISIT_DATE"
+  },
+  "businessFormulas": [],
+  "dataSourceDefinition": {
+    "type": "mssql",
+    "classification": "global-core-report-drilldown",
+    "legacyReportFile": "rptTaggingVerificationDetail2.php",
+    "primaryTables": ["ITINERARY", "PSR_ITINERARY", "DOCTOR", "SPECIALTY", "doctor_clinic"],
+    "requiredFields": {
+      "ITINERARY": ["TERRITORY_ID", "MD_ID", "PSR_ID", "VISIT_DATE", "ITINERARY_DATE", "FREQUENCY", "VISIT_NUMBER"],
+      "PSR_ITINERARY": ["PSR_ID", "TERRITORY_ID", "ITINERARY_DATE", "YEAR", "MONTH"],
+      "DOCTOR": ["MD_ID", "FIRST_NAME", "LAST_NAME", "SPECIALTY_CODE"],
+      "SPECIALTY": ["SPECIALTY_CODE", "SPECIALTY_DESCRIPTION"],
+      "doctor_clinic": ["MD_ID", "TERRITORY_ID", "CLINIC_ADDRESS", "SPECIALTY"]
+    },
+    "scopeRules": ["global report", "required territory scope", "required territoryId and visitDate filters"],
+    "filtersApplied": ["territoryId", "visitDate"],
+    "grain": "one visited itinerary row for selected territory/date",
+    "notes": "Modern drilldown equivalent of WERT rptTaggingVerificationDetail2.php. Signature is emitted as a deterministic reference string for now; legacy rendered an image URL. Notes is a placeholder for the legacy DoctorCallNotes popup."
+  }
+}

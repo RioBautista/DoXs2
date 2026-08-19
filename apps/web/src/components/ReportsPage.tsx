@@ -194,14 +194,15 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
     setIsOutputFullscreen(false);
   }
 
-  async function handleRun(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedReport) return;
+  async function runReportById(reportId: string, nextFilters: FilterState) {
+    setSelectedId(reportId);
+    setFilters(nextFilters);
+    setIsOutputFullscreen(false);
     setIsRunning(true);
     setError(null);
     setResult(null);
     try {
-      const response = await runReport(selectedReport.id, filters);
+      const response = await runReport(reportId, nextFilters);
       setResult(response);
       if (!response.ok) setError(response.message ?? 'Report failed.');
     } catch (runError) {
@@ -209,6 +210,39 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
     } finally {
       setIsRunning(false);
     }
+  }
+
+  async function handleRun(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedReport) return;
+    await runReportById(selectedReport.id, filters);
+  }
+
+  async function openTaggingVerificationDetail(row: Record<string, unknown>) {
+    const territoryId = String(row.detail_territory_id ?? '').trim();
+    const rawVisitDate = row.detail_visit_date;
+    const visitDate = typeof rawVisitDate === 'string' ? rawVisitDate.slice(0, 10) : '';
+    if (!territoryId || !/^\d{4}-\d{2}-\d{2}/.test(visitDate)) return;
+    await runReportById('tagging-verification-detail', { territoryId, visitDate: visitDate.slice(0, 10) });
+  }
+
+  function isTaggingVerificationDetailsCell(row: Record<string, unknown>, column: ReportColumn) {
+    return selectedReport?.id === 'tagging-verification' && column.id === 'details' && reportRowType(row) === 'detail';
+  }
+
+  function renderCell(row: Record<string, unknown>, column: ReportColumn) {
+    if (isTaggingVerificationDetailsCell(row, column)) {
+      return (
+        <button
+          type="button"
+          onClick={() => void openTaggingVerificationDetail(row)}
+          className="font-semibold text-brand-700 underline decoration-brand-300 underline-offset-2 hover:text-brand-800"
+        >
+          details
+        </button>
+      );
+    }
+    return formatCell(row[column.id], column.format, column.type);
   }
 
   function downloadCsv() {
@@ -420,7 +454,7 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
                         <tr key={index} className={rowClass(row, index)}>
                           {columns.map((column) => (
                             <td key={column.id} id={column.type === 'number' ? 'decimal' : 'data'} className={`whitespace-nowrap border border-[#cccccc] ${dataCellClass} ${alignClass(column.align)} ${column.type === 'number' ? `text-right ${numberCellClass}` : `text-left ${textCellClass}`} ${reportRowType(row) !== 'detail' && column.id === 'territory' ? 'text-center' : ''}`}>
-                              {formatCell(row[column.id], column.format, column.type)}
+                              {renderCell(row, column)}
                             </td>
                           ))}
                         </tr>
