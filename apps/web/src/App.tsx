@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, FormEvent, lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Component, type ErrorInfo, FormEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { LockKeyhole, LogOut, ShieldCheck } from 'lucide-react';
 import { getCurrentSession, login, logout } from './api';
 import { Button } from './components/ui/Button';
@@ -53,7 +53,7 @@ function navigate(path: string) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
-function AppShell({ session, activePath, onLogout }: { session: AuthSession; activePath: string; onLogout: () => void }) {
+function AppShell({ session, activePath, selectedTerritoryId, onTerritoryChange, onLogout }: { session: AuthSession; activePath: string; selectedTerritoryId: string; onTerritoryChange: (territoryId: string) => void; onLogout: () => void }) {
   const activeClientName = getDisplayClientName(session.clientSlug);
   const isReports = activePath === '/reports';
   const isDoctors = activePath === '/doctors';
@@ -104,7 +104,7 @@ function AppShell({ session, activePath, onLogout }: { session: AuthSession; act
 
         <AppErrorBoundary>
           <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">Loading…</div>}>
-            {isReports ? <ReportsPage clientName={activeClientName} /> : isDoctors ? <DoctorsPage clientName={activeClientName} /> : <Dashboard session={session} />}
+            {isReports ? <ReportsPage clientName={activeClientName} /> : isDoctors ? <DoctorsPage clientName={activeClientName} selectedTerritoryId={selectedTerritoryId} onTerritoryChange={onTerritoryChange} /> : <Dashboard session={session} selectedTerritoryId={selectedTerritoryId} onTerritoryChange={onTerritoryChange} />}
           </Suspense>
         </AppErrorBoundary>
       </section>
@@ -132,6 +132,7 @@ export default function App() {
   const clientName = getDisplayClientName(client.clientSlug);
   const [checkedSession, setCheckedSession] = useState(false);
   const [activePath, setActivePath] = useState(() => normalizePath(window.location.pathname));
+  const [selectedTerritoryId, setSelectedTerritoryId] = useState(() => window.localStorage.getItem('doxs:selectedTerritoryId') || 'ALL');
   const [session, setSession] = useState<AuthSession | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -169,6 +170,11 @@ export default function App() {
   useEffect(() => {
     syncRouteWithSession(session, checkedSession, setActivePath);
   }, [session, checkedSession]);
+
+  const handleTerritoryChange = useCallback((territoryId: string) => {
+    setSelectedTerritoryId(territoryId);
+    window.localStorage.setItem('doxs:selectedTerritoryId', territoryId);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -215,7 +221,7 @@ export default function App() {
   }
 
   if (session) {
-    return <AppShell session={session} activePath={activePath} onLogout={handleLogout} />;
+    return <AppShell session={session} activePath={activePath} selectedTerritoryId={selectedTerritoryId} onTerritoryChange={handleTerritoryChange} onLogout={handleLogout} />;
   }
 
   return (

@@ -22,6 +22,8 @@ import type { AuthSession } from '../lib/auth';
 
 type DashboardProps = {
   session: AuthSession;
+  selectedTerritoryId: string;
+  onTerritoryChange: (territoryId: string) => void;
 };
 
 type DashboardTerritoryOption = {
@@ -475,14 +477,13 @@ function ActivityOverviewChart({ activityOverview, selectedTerritoryId, status }
   return <ReactECharts option={option} style={{ height: 280, width: '100%' }} notMerge lazyUpdate />;
 }
 
-export function Dashboard({ session }: DashboardProps) {
+export function Dashboard({ session, selectedTerritoryId, onTerritoryChange }: DashboardProps) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [subscriptionStatus, setSubscriptionStatus] = useState<'pending' | 'subscribed' | 'api-only'>('pending');
   const [activityStatus, setActivityStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [callMapStatus, setCallMapStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [activityOverview, setActivityOverview] = useState<DashboardActivityOverview | null>(null);
-  const [selectedTerritoryId, setSelectedTerritoryId] = useState('ALL');
   const [callMap, setCallMap] = useState<DashboardCallMap | null>(null);
   const [callMapCycle, setCallMapCycle] = useState<DashboardCallMap['cycle'] | null>(null);
   const [callMapTerritories, setCallMapTerritories] = useState<string[]>([]);
@@ -526,8 +527,8 @@ export function Dashboard({ session }: DashboardProps) {
 
   useEffect(() => {
     if (selectedTerritoryId === 'ALL') return;
-    if (!territoryOptionIds.includes(selectedTerritoryId)) setSelectedTerritoryId('ALL');
-  }, [territoryOptionIds, selectedTerritoryId]);
+    if (!territoryOptionIds.includes(selectedTerritoryId)) onTerritoryChange('ALL');
+  }, [territoryOptionIds, selectedTerritoryId, onTerritoryChange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -753,7 +754,7 @@ export function Dashboard({ session }: DashboardProps) {
               <select
                 className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-700 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-blue-100"
                 value={selectedTerritoryId}
-                onChange={(event) => setSelectedTerritoryId(event.target.value)}
+                onChange={(event) => onTerritoryChange(event.target.value)}
               >
                 <option value="ALL">(ALL) All territories</option>
                 {territoryOptions.map((territory) => <option key={territory.territoryId} value={territory.territoryId}>{territoryDisplayName(territory)}</option>)}
@@ -805,7 +806,7 @@ export function Dashboard({ session }: DashboardProps) {
             <ActivityOverviewChart activityOverview={selectedActivityOverview} selectedTerritoryId={selectedTerritoryId} status={activityStatus} />
           </div>
 
-          <CallMap callMap={callMap} status={callMapStatus} progress={{ loaded: callMapLoadedCount, total: callMapTerritories.length }} selectedDate={selectedCallMapDate} selectedTerritoryId={selectedTerritoryId} onDateChange={setSelectedCallMapDate} onTerritoryChange={setSelectedTerritoryId} loadedTerritoryIds={loadedTerritoryIds} loadingTerritoryIds={loadingTerritoryIds} onTerritorySelect={(territoryId) => loadTerritoryNowRef.current?.(territoryId)} />
+          <CallMap callMap={callMap} status={callMapStatus} progress={{ loaded: callMapLoadedCount, total: callMapTerritories.length }} selectedDate={selectedCallMapDate} selectedTerritoryId={selectedTerritoryId} onDateChange={setSelectedCallMapDate} onTerritoryChange={onTerritoryChange} loadedTerritoryIds={loadedTerritoryIds} loadingTerritoryIds={loadingTerritoryIds} onTerritorySelect={(territoryId) => loadTerritoryNowRef.current?.(territoryId)} />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">

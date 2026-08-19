@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Check, Loader2, Search, Stethoscope } from 'lucide-react';
 import { getDoctorActualCalls, getDoctors, getDoctorTerritories, type DoctorDirectoryRow } from '../api';
 import type { DoctorActualCallsResponse, DoctorDirectoryResponse } from '@doxs/shared';
 
-type DoctorsPageProps = { clientName: string };
+type DoctorsPageProps = { clientName: string; selectedTerritoryId: string; onTerritoryChange: (territoryId: string) => void };
 const weekLabels = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'];
 const dayLabels: Record<number, string> = { 1: 'M', 2: 'Tu', 3: 'W', 4: 'Th', 5: 'F' };
 
@@ -19,12 +19,11 @@ function LoadingState({ label }: { label: string }) {
   return <div className="flex items-center justify-center gap-2 text-sm font-medium text-slate-500"><Loader2 className="h-5 w-5 animate-spin text-brand-600" /><span>{label}</span></div>;
 }
 
-export function DoctorsPage({ clientName }: DoctorsPageProps) {
+export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange }: DoctorsPageProps) {
   const initial = new URLSearchParams(window.location.search);
   const [search, setSearch] = useState(initial.get('search') ?? '');
   const [territories, setTerritories] = useState<string[]>([]);
   const [territoriesLoading, setTerritoriesLoading] = useState(true);
-  const [selectedTerritory, setSelectedTerritory] = useState(initial.get('territory') ?? '');
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [doctors, setDoctors] = useState<DoctorDirectoryRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -44,7 +43,9 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
       .then((items) => {
         if (cancelled) return;
         setTerritories(items);
-        setSelectedTerritory((current) => current && items.includes(current) ? current : (items[0] ?? ''));
+        const requestedTerritory = initial.get('territory');
+        const nextTerritory = requestedTerritory && items.includes(requestedTerritory) ? requestedTerritory : selectedTerritoryId !== 'ALL' && items.includes(selectedTerritoryId) ? selectedTerritoryId : selectedTerritoryId;
+        if (nextTerritory !== selectedTerritoryId) onTerritoryChange(nextTerritory);
       })
       .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load doctor territories.'); })
       .finally(() => { if (!cancelled) setTerritoriesLoading(false); });
@@ -56,13 +57,18 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
     return () => window.clearTimeout(timer);
   }, [search]);
 
+  const effectiveDoctorTerritory = useMemo(() => {
+    if (selectedTerritoryId !== 'ALL' && territories.includes(selectedTerritoryId)) return selectedTerritoryId;
+    return territories[0] ?? '';
+  }, [selectedTerritoryId, territories]);
+
   useEffect(() => {
     const params = new URLSearchParams();
-    if (selectedTerritory) params.set('territory', selectedTerritory);
+    if (selectedTerritoryId !== 'ALL') params.set('territory', selectedTerritoryId);
     if (debouncedSearch) params.set('search', debouncedSearch);
     window.history.replaceState(null, '', `/doctors${params.size ? `?${params.toString()}` : ''}`);
 
-    if (!selectedTerritory) return;
+    if (!effectiveDoctorTerritory) return;
 
     let cancelled = false;
     setIsLoading(true);
@@ -77,7 +83,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
       try {
         do {
           const result = await getDoctors({
-            territory: selectedTerritory,
+            territory: effectiveDoctorTerritory,
             search: debouncedSearch || undefined,
             cursor,
             limit: 10,
@@ -109,15 +115,15 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [debouncedSearch, selectedTerritory]);
+  }, [debouncedSearch, effectiveDoctorTerritory, selectedTerritoryId]);
 
   useEffect(() => {
-    if (!showActualCalls || !selectedTerritory) return;
+    if (!showActualCalls || !effectiveDoctorTerritory) return;
     let cancelled = false;
     setActualCallsLoading(true);
     setActualCallsLoaded(false);
     setError(null);
-    void getDoctorActualCalls(selectedTerritory)
+    void getDoctorActualCalls(effectiveDoctorTerritory)
       .then((result) => {
         if (cancelled) return;
         setActualCalls(result.calls);
@@ -127,7 +133,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
       .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load actual calls.'); })
       .finally(() => { if (!cancelled) setActualCallsLoading(false); });
     return () => { cancelled = true; };
-  }, [showActualCalls, selectedTerritory]);
+  }, [showActualCalls, effectiveDoctorTerritory]);
 
   const actualCallCells = new Map<string, number>();
   const actualWeekTotals = [0, 0, 0, 0, 0];
@@ -167,7 +173,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
             <div className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-blue-50 text-brand-600"><Stethoscope className="h-5 w-5" /></div>
             <div>
               <h2 className="text-lg font-bold text-slate-950">Doctors / Territory Master List</h2>
-              <p className="mt-1 text-sm text-slate-500">Browse the {clientName} doctor list within your assigned territory scope.</p>
+              <p className="mt-1 text-sm text-slate-500">Browse the {clientName} doctor list using the same territory scope as Dashboard.</p>
             </div>
           </div>
           <label className="relative block w-full lg:max-w-sm">
@@ -176,11 +182,15 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
           </label>
         </div>
         <div className="mt-5 border-t border-slate-200 pt-4">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Territory</p>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Shared territory scope</p>
           {territoriesLoading ? <div className="flex justify-start py-1"><LoadingState label="Loading assigned territories…" /></div> : territories.length ? (
-            <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Doctor territories">
-              {territories.map((territory) => <button key={territory} type="button" role="tab" aria-selected={selectedTerritory === territory} onClick={() => setSelectedTerritory(territory)} className={`flex-none rounded-lg border px-3 py-1.5 text-xs font-bold transition ${selectedTerritory === territory ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:bg-blue-50'}`}>{territory}</button>)}
-            </div>
+            <>
+              <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Doctor territories">
+                <button type="button" role="tab" aria-selected={selectedTerritoryId === 'ALL'} onClick={() => onTerritoryChange('ALL')} className={`flex-none rounded-lg border px-3 py-1.5 text-xs font-bold transition ${selectedTerritoryId === 'ALL' ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:bg-blue-50'}`}>(ALL)</button>
+                {territories.map((territory) => <button key={territory} type="button" role="tab" aria-selected={selectedTerritoryId === territory} onClick={() => onTerritoryChange(territory)} className={`flex-none rounded-lg border px-3 py-1.5 text-xs font-bold transition ${selectedTerritoryId === territory ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:bg-blue-50'}`}>{territory}</button>)}
+              </div>
+              {selectedTerritoryId === 'ALL' ? <p className="mt-2 text-xs text-slate-500">Dashboard is set to all territories. Doctor TML preview is showing {effectiveDoctorTerritory} because the doctor list loads one territory at a time.</p> : null}
+            </>
           ) : <p className="text-sm text-slate-500">No assigned territories were found for this account.</p>}
         </div>
       </section>
@@ -195,12 +205,12 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
               <input type="checkbox" checked={showActualCalls} onChange={(event) => setShowActualCalls(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
               <span>Show actual calls</span>
             </label>
-            <span>{selectedTerritory ? `Territory ${selectedTerritory}` : territoryCount ? `${territoryCount} territories in scope` : 'Loading territory scope…'}</span>
+            <span>{effectiveDoctorTerritory ? `Territory ${effectiveDoctorTerritory}${selectedTerritoryId === 'ALL' ? ' · dashboard ALL preview' : ''}` : territoryCount ? `${territoryCount} territories in scope` : 'Loading territory scope…'}</span>
           </div>
         </div>
-        {showActualCalls && actualCallsLoading ? <div className="border-b border-slate-100 bg-emerald-50/40 px-5 py-3"><LoadingState label={`Checking actual-call count for ${selectedTerritory}…`} /></div> : null}
-        {showActualCalls && actualCallsLoaded && !actualCallsLoading && actualCalls.length === 0 ? <div className="border-b border-amber-100 bg-amber-50 px-5 py-3 text-center text-sm text-amber-800">Checked the current cycle: no actual calls were found for territory {selectedTerritory}.</div> : null}
-        {isLoading ? <div className="p-12"><LoadingState label={`Loading and counting doctors for ${selectedTerritory}…`} /></div> : null}
+        {showActualCalls && actualCallsLoading ? <div className="border-b border-slate-100 bg-emerald-50/40 px-5 py-3"><LoadingState label={`Checking actual-call count for ${effectiveDoctorTerritory}…`} /></div> : null}
+        {showActualCalls && actualCallsLoaded && !actualCallsLoading && actualCalls.length === 0 ? <div className="border-b border-amber-100 bg-amber-50 px-5 py-3 text-center text-sm text-amber-800">Checked the current cycle: no actual calls were found for territory {effectiveDoctorTerritory}.</div> : null}
+        {isLoading ? <div className="p-12"><LoadingState label={`Loading and counting doctors for ${effectiveDoctorTerritory}…`} /></div> : null}
         {!isLoading && !doctors.length && !error ? <div className="p-10 text-center"><p className="text-sm font-semibold text-slate-700">No matching doctors to display.</p><p className="mt-1 text-xs text-slate-500">The territory doctor count was checked after loading. Try clearing the search filter.</p></div> : null}
         <div className="max-h-[65vh] overflow-auto">
           <div className="min-w-[920px]">
