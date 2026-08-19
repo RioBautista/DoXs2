@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Check, Loader2, Search, Stethoscope } from 'lucide-react';
-import { getDoctorActualCalls, getDoctors, getDoctorTerritories, type DoctorDirectoryRow } from '../api';
-import type { DoctorActualCallsResponse, DoctorDirectoryResponse } from '@doxs/shared';
+import { getDashboardSummary, getDoctorActualCalls, getDoctors, getDoctorTerritories, type DoctorDirectoryRow } from '../api';
+import type { DashboardMetrics, DoctorActualCallsResponse, DoctorDirectoryResponse } from '@doxs/shared';
 
 type DoctorsPageProps = { clientName: string; selectedTerritoryId: string; onTerritoryChange: (territoryId: string) => void };
+type DoctorTerritoryOption = { territoryId: string; territoryDescription?: string | null; medRepName?: string | null; metrics?: DashboardMetrics };
 const weekLabels = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'];
 const dayLabels: Record<number, string> = { 1: 'M', 2: 'Tu', 3: 'W', 4: 'Th', 5: 'F' };
 
@@ -19,10 +20,17 @@ function LoadingState({ label }: { label: string }) {
   return <div className="flex items-center justify-center gap-2 text-sm font-medium text-slate-500"><Loader2 className="h-5 w-5 animate-spin text-brand-600" /><span>{label}</span></div>;
 }
 
+
+function territoryDisplayName(territory: Pick<DoctorTerritoryOption, 'territoryId' | 'territoryDescription'>) {
+  return territory.territoryDescription ? `${territory.territoryId} — ${territory.territoryDescription}` : territory.territoryId;
+}
+
+
 export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange }: DoctorsPageProps) {
   const initial = new URLSearchParams(window.location.search);
   const [search, setSearch] = useState(initial.get('search') ?? '');
   const [territories, setTerritories] = useState<string[]>([]);
+  const [territoryMetadata, setTerritoryMetadata] = useState<DoctorTerritoryOption[]>([]);
   const [territoriesLoading, setTerritoriesLoading] = useState(true);
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [doctors, setDoctors] = useState<DoctorDirectoryRow[]>([]);
@@ -57,10 +65,35 @@ export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange
     return () => window.clearTimeout(timer);
   }, [search]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void getDashboardSummary()
+      .then((result) => {
+        if (cancelled) return;
+        setTerritoryMetadata(result.territories ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setTerritoryMetadata([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const effectiveDoctorTerritory = useMemo(() => {
     if (selectedTerritoryId !== 'ALL' && territories.includes(selectedTerritoryId)) return selectedTerritoryId;
     return territories[0] ?? '';
   }, [selectedTerritoryId, territories]);
+
+  const territoryOptions = useMemo<DoctorTerritoryOption[]>(() => {
+    const options = new Map<string, DoctorTerritoryOption>();
+    for (const territoryId of territories) options.set(territoryId, { territoryId });
+    for (const territory of territoryMetadata) {
+      if (!territories.includes(territory.territoryId)) continue;
+      const existing = options.get(territory.territoryId);
+      options.set(territory.territoryId, { ...existing, ...territory });
+    }
+    return [...options.values()].sort((a, b) => a.territoryId.localeCompare(b.territoryId));
+  }, [territories, territoryMetadata]);
+  const selectedTerritoryOption = selectedTerritoryId === 'ALL' ? null : territoryOptions.find((territory) => territory.territoryId === selectedTerritoryId) ?? null;
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -181,17 +214,46 @@ export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search surname, first name, or MD ID" className="w-full rounded-xl border border-slate-300 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-blue-100" />
           </label>
         </div>
-        <div className="mt-5 border-t border-slate-200 pt-4">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Shared territory scope</p>
-          {territoriesLoading ? <div className="flex justify-start py-1"><LoadingState label="Loading assigned territories…" /></div> : territories.length ? (
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">Dashboard territory scope</p>
+              <p className="mt-1 text-sm text-slate-500">Doctors uses the same saved territory selection as Dashboard.</p>
+            </div>
+            <label className="flex min-w-72 flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Territory
+              <select
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-700 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-blue-100"
+                value={selectedTerritoryId}
+                onChange={(event) => onTerritoryChange(event.target.value)}
+                disabled={territoriesLoading || !territories.length}
+              >
+                <option value="ALL">(ALL) All territories</option>
+                {territoryOptions.map((territory) => <option key={territory.territoryId} value={territory.territoryId}>{territoryDisplayName(territory)}</option>)}
+              </select>
+            </label>
+          </div>
+          {territoriesLoading ? <div className="mt-4 flex justify-start py-1"><LoadingState label="Loading assigned territories…" /></div> : territories.length ? (
             <>
-              <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Doctor territories">
-                <button type="button" role="tab" aria-selected={selectedTerritoryId === 'ALL'} onClick={() => onTerritoryChange('ALL')} className={`flex-none rounded-lg border px-3 py-1.5 text-xs font-bold transition ${selectedTerritoryId === 'ALL' ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:bg-blue-50'}`}>(ALL)</button>
-                {territories.map((territory) => <button key={territory} type="button" role="tab" aria-selected={selectedTerritoryId === territory} onClick={() => onTerritoryChange(territory)} className={`flex-none rounded-lg border px-3 py-1.5 text-xs font-bold transition ${selectedTerritoryId === territory ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:bg-blue-50'}`}>{territory}</button>)}
-              </div>
-              {selectedTerritoryId === 'ALL' ? <p className="mt-2 text-xs text-slate-500">Dashboard is set to all territories. Doctor TML preview is showing {effectiveDoctorTerritory} because the doctor list loads one territory at a time.</p> : null}
+              {selectedTerritoryOption ? (
+                <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600 md:grid-cols-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Territory</p>
+                    <p className="mt-1 font-bold text-slate-950">{selectedTerritoryOption.territoryId}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Territory name</p>
+                    <p className="mt-1 font-semibold text-slate-800">{selectedTerritoryOption.territoryDescription ?? 'Not available yet'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">MedRep</p>
+                    <p className="mt-1 font-semibold text-slate-800">{selectedTerritoryOption.medRepName ?? 'Not available yet'}</p>
+                  </div>
+                </div>
+              ) : null}
+              {selectedTerritoryId === 'ALL' ? <p className="mt-3 text-xs text-slate-500">Dashboard is set to all territories. Doctor TML preview is showing {effectiveDoctorTerritory} because the doctor list loads one territory at a time.</p> : null}
             </>
-          ) : <p className="text-sm text-slate-500">No assigned territories were found for this account.</p>}
+          ) : <p className="mt-4 text-sm text-slate-500">No assigned territories were found for this account.</p>}
         </div>
       </section>
 
