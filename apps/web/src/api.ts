@@ -1,4 +1,4 @@
-import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardSummary, DoctorDirectoryResponse, LoginUser, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
+import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardSummary, DoctorActualCallsResponse, DoctorDirectoryResponse, LoginUser, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
 
 export type { DashboardSummary, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
 export type { DoctorDirectoryResponse, DoctorDirectoryRow } from '@doxs/shared';
@@ -98,6 +98,14 @@ export async function getDoctors(params: { territory: string; letter?: string; s
   const response = await fetchJson(`${API_BASE}/doctors?${query.toString()}`, { method: 'GET', credentials: 'include' });
   const data = (await response.json()) as DoctorDirectoryResponse;
   if (!response.ok) throw new Error(data.message ?? 'Doctor directory request failed.');
+  return data;
+}
+
+export async function getDoctorActualCalls(territory: string): Promise<DoctorActualCallsResponse> {
+  const query = new URLSearchParams({ territory });
+  const response = await fetchJson(`${API_BASE}/doctors/actual-calls?${query.toString()}`, { method: 'GET', credentials: 'include' });
+  const data = (await response.json()) as DoctorActualCallsResponse;
+  if (!response.ok) throw new Error(data.message ?? 'Actual calls request failed.');
   return data;
 }
 

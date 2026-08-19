@@ -36,6 +36,14 @@ export type DoctorDirectoryResponse = {
   message?: string;
 };
 
+export type DoctorActualCallsResponse = {
+  ok: boolean;
+  territoryId: string;
+  cycle: DashboardCallMap['cycle'] | null;
+  calls: Array<Pick<DashboardCallMapCall, 'id' | 'doctorId' | 'territoryId' | 'visitDate'> & { callDate: string }>;
+  message?: string;
+};
+
 export type DashboardMetrics = {
   targetCalls: number | null;
   actualCalls: number | null;

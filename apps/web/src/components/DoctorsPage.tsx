@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, Search, Stethoscope } from 'lucide-react';
-import { getDoctors, getDoctorTerritories, type DoctorDirectoryRow } from '../api';
-import type { DoctorDirectoryResponse } from '@doxs/shared';
+import { AlertCircle, Check, Search, Stethoscope } from 'lucide-react';
+import { getDoctorActualCalls, getDoctors, getDoctorTerritories, type DoctorDirectoryRow } from '../api';
+import type { DoctorActualCallsResponse, DoctorDirectoryResponse } from '@doxs/shared';
 
 type DoctorsPageProps = { clientName: string };
 const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
@@ -25,6 +25,10 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [territoryCount, setTerritoryCount] = useState(0);
   const [totals, setTotals] = useState<DoctorDirectoryResponse['totals']>();
+  const [showActualCalls, setShowActualCalls] = useState(false);
+  const [actualCalls, setActualCalls] = useState<DoctorActualCallsResponse['calls']>([]);
+  const [actualCycle, setActualCycle] = useState<DoctorActualCallsResponse['cycle']>(null);
+  const [actualCallsLoading, setActualCallsLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +104,35 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
     return () => { cancelled = true; };
   }, [letter, debouncedSearch, selectedTerritory]);
 
+  useEffect(() => {
+    if (!showActualCalls || !selectedTerritory) return;
+    let cancelled = false;
+    setActualCallsLoading(true);
+    setError(null);
+    void getDoctorActualCalls(selectedTerritory)
+      .then((result) => {
+        if (cancelled) return;
+        setActualCalls(result.calls);
+        setActualCycle(result.cycle);
+      })
+      .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load actual calls.'); })
+      .finally(() => { if (!cancelled) setActualCallsLoading(false); });
+    return () => { cancelled = true; };
+  }, [showActualCalls, selectedTerritory]);
+
+  const actualCallCells = new Map<string, number>();
+  if (showActualCalls && actualCycle) {
+    const cycleStart = new Date(`${actualCycle.startDate}T00:00:00.000Z`).getTime();
+    for (const call of actualCalls) {
+      const callDate = new Date(`${call.callDate}T00:00:00.000Z`);
+      const dayNumber = callDate.getUTCDay();
+      const weekIndex = Math.floor((Date.UTC(callDate.getUTCFullYear(), callDate.getUTCMonth(), callDate.getUTCDate()) - cycleStart) / (7 * 24 * 60 * 60 * 1000));
+      if (weekIndex < 0 || weekIndex >= 5 || dayNumber < 1 || dayNumber > 5) continue;
+      const key = `${call.doctorId}:${weekIndex}:${dayNumber}`;
+      actualCallCells.set(key, (actualCallCells.get(key) ?? 0) + 1);
+    }
+  }
+
   const loadedDayTotals = weekLabels.map((_, weekIndex) => [1, 2, 3, 4, 5].map(
     (day) => doctors.filter((doctor) => doctor.visitDays[weekIndex] === day).length,
   ));
@@ -137,9 +170,15 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
       {error ? <div className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertCircle className="h-5 w-5 flex-none" /><span>{error}</span></div> : null}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3 text-xs text-slate-500">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-3 text-xs text-slate-500">
           <span>{isLoading ? 'Loading doctors…' : `${doctors.length} doctor-territory record${doctors.length === 1 ? '' : 's'} loaded${isIncrementallyLoading ? '…' : ''}`}</span>
-          <span>{selectedTerritory ? `Territory ${selectedTerritory}` : territoryCount ? `${territoryCount} territories in scope` : 'Loading territory scope…'}</span>
+          <div className="flex items-center gap-4">
+            <label className="flex cursor-pointer items-center gap-2 font-semibold text-slate-700">
+              <input type="checkbox" checked={showActualCalls} onChange={(event) => setShowActualCalls(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500" />
+              <span>{actualCallsLoading ? 'Loading actual calls…' : 'Show actual calls'}</span>
+            </label>
+            <span>{selectedTerritory ? `Territory ${selectedTerritory}` : territoryCount ? `${territoryCount} territories in scope` : 'Loading territory scope…'}</span>
+          </div>
         </div>
         {!isLoading && !doctors.length && !error ? <div className="p-10 text-center text-sm text-slate-500">No doctors match this filter.</div> : null}
         <div className="max-h-[65vh] overflow-auto">
@@ -174,11 +213,19 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
                     </div>
                     {doctor.visitDays.map((day, weekIndex) => (
                       <div key={weekIndex} className={`grid grid-cols-5 border-l border-slate-300 ${weekIndex % 2 ? 'bg-indigo-50/70' : 'bg-blue-50/60'}`}>
-                        {[1, 2, 3, 4, 5].map((dayNumber) => (
-                          <div key={dayNumber} className="flex min-h-11 items-center justify-center border-l border-slate-200 first:border-l-0">
-                            {day === dayNumber ? <span className="flex h-6 w-6 items-center justify-center bg-brand-600 text-[10px] font-bold text-white shadow-sm">{dayLabels[dayNumber]}</span> : null}
-                          </div>
-                        ))}
+                        {[1, 2, 3, 4, 5].map((dayNumber) => {
+                          const actualCount = actualCallCells.get(`${doctor.doctorId}:${weekIndex}:${dayNumber}`) ?? 0;
+                          const isPlanned = day === dayNumber;
+                          return (
+                            <div key={dayNumber} className="flex min-h-11 items-center justify-center border-l border-slate-200 first:border-l-0">
+                              {actualCount ? (
+                                <span title={`${actualCount} actual call${actualCount === 1 ? '' : 's'} · ${isPlanned ? 'As scheduled' : 'Not scheduled'}`} className={`flex h-6 w-6 items-center justify-center rounded-full text-white shadow-sm ${isPlanned ? 'bg-emerald-500' : 'bg-amber-400'}`}>
+                                  <Check className="h-4 w-4 stroke-[3]" />
+                                </span>
+                              ) : isPlanned ? <span className="flex h-6 w-6 items-center justify-center bg-brand-600 text-[10px] font-bold text-white shadow-sm">{dayLabels[dayNumber]}</span> : null}
+                            </div>
+                          );
+                        })}
                       </div>
                     ))}
                   </article>

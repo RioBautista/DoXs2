@@ -7,7 +7,7 @@ import { checkDrupalMySQLConnection, debugDrupalMySQLAuth, debugDrupalMySQLUsers
 import { clearSessionCookie, createSessionToken, getSessionCookieDiagnostics, getSessionFromRequest, setSessionCookie } from './session.js';
 import { DASHBOARD_VIEW_KEYS, readFreshDashboardActivityOverviewCache, readFreshDashboardCache, resolveDashboardScope, viewCachePath, writeDashboardActivityOverviewCache, writeDashboardCache, type DashboardScope } from './dashboard-cache.js';
 import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
-import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardActivityOverview, getDashboardCallMapScopeMetadata, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
+import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardActivityOverview, getDashboardCallMap, getDashboardCallMapScopeMetadata, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
 import { listReportDefinitions, runReportDefinition } from './report-engine.js';
 import { getCallMapTerritoryDate } from './call-map-store.js';
 import { doctorDirectoryQuerySchema, listDoctorTerritories } from './doctor-directory.js';
@@ -551,6 +551,43 @@ export function buildApp() {
     } catch (error) {
       request.log.error({ error, clientSlug: effectiveClientSlug, username: session.username }, 'doctor directory request failed');
       return reply.status(503).send({ ok: false, message: error instanceof Error ? error.message : 'Doctor directory is temporarily unavailable.' });
+    }
+  });
+
+  app.get('/api/doctors/actual-calls', async (request, reply) => {
+    const session = getSessionFromRequest(request);
+    if (!session) return reply.status(401).send({ ok: false, message: 'Not authenticated.' });
+
+    const requestClientSlug = clientSlugFromRequest(request);
+    if (!sessionMatchesRequestClient(session.clientSlug, requestClientSlug)) {
+      clearSessionCookie(reply, request);
+      return reply.status(401).send({ ok: false, message: 'Session client does not match this client domain.' });
+    }
+
+    const territoryId = String((request.query as { territory?: string }).territory ?? '').trim();
+    if (!territoryId) return reply.status(400).send({ ok: false, message: 'territory is required.' });
+
+    const effectiveClientSlug = resolveRequestClientSlug(request, session.clientSlug);
+    const territoryScope = await getCachedClientUserTerritories(effectiveClientSlug, session.username, request.log);
+    const territories = territoryScope.territories;
+    const isManager = session.roles.some((role) => /admin|manager|district|region/i.test(role));
+    if (!territories.length && !isManager) return reply.status(403).send({ ok: false, message: 'No territory scope is assigned to this user.' });
+    if (territories.length && !territories.includes(territoryId)) return reply.status(403).send({ ok: false, message: 'Territory is outside this user scope.' });
+
+    try {
+      const result = await getDashboardCallMap(effectiveClientSlug, [territoryId]);
+      if (!result.ok || !result.callMap) return reply.status(503).send({ ok: false, territoryId, cycle: null, calls: [], message: result.message ?? 'Actual calls are unavailable.' });
+      const calls = Object.entries(result.callMap.days).flatMap(([callDate, day]) => day.calls.map(({ id, doctorId, territoryId: callTerritoryId, visitDate }) => ({
+        id,
+        doctorId,
+        territoryId: callTerritoryId,
+        visitDate,
+        callDate,
+      })));
+      return reply.status(200).send({ ok: true, territoryId, cycle: result.callMap.cycle, calls });
+    } catch (error) {
+      request.log.error({ error, clientSlug: effectiveClientSlug, territoryId }, 'doctor actual calls request failed');
+      return reply.status(503).send({ ok: false, territoryId, cycle: null, calls: [], message: 'Actual calls are temporarily unavailable.' });
     }
   });
 
