@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Check, Loader2, Search, Stethoscope } from 'lucide-react';
 import { getDoctorActualCalls, getDoctors, getDoctorTerritoryOptions, type DoctorDirectoryRow } from '../api';
-import type { DashboardMetrics, DoctorActualCallsResponse, DoctorDirectoryResponse } from '@doxs/shared';
+import type { DashboardMetrics, DoctorActualCallsResponse, DoctorDirectoryResponse, DoctorTerritoryOption as SharedDoctorTerritoryOption } from '@doxs/shared';
 
-type DoctorsPageProps = { clientName: string; selectedTerritoryId: string; onTerritoryChange: (territoryId: string) => void };
+type DoctorsPageProps = { clientName: string; selectedTerritoryId: string; territoryOptions: SharedDoctorTerritoryOption[]; onTerritoryChange: (territoryId: string) => void; onTerritoryOptionsChange: (options: SharedDoctorTerritoryOption[]) => void };
 type DoctorTerritoryOption = { territoryId: string; territoryDescription?: string | null; medRepName?: string | null; metrics?: DashboardMetrics };
 const weekLabels = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'];
 const dayLabels: Record<number, string> = { 1: 'M', 2: 'Tu', 3: 'W', 4: 'Th', 5: 'F' };
@@ -26,11 +26,11 @@ function territoryDisplayName(territory: Pick<DoctorTerritoryOption, 'territoryI
 }
 
 
-export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange }: DoctorsPageProps) {
+export function DoctorsPage({ clientName, selectedTerritoryId, territoryOptions: sharedTerritoryOptions, onTerritoryChange, onTerritoryOptionsChange }: DoctorsPageProps) {
   const initial = new URLSearchParams(window.location.search);
   const [search, setSearch] = useState(initial.get('search') ?? '');
   const [territories, setTerritories] = useState<string[]>([]);
-  const [territoryMetadata, setTerritoryMetadata] = useState<DoctorTerritoryOption[]>([]);
+  const [localTerritoryOptions, setLocalTerritoryOptions] = useState<DoctorTerritoryOption[]>([]);
   const [territoriesLoading, setTerritoriesLoading] = useState(true);
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [doctors, setDoctors] = useState<DoctorDirectoryRow[]>([]);
@@ -47,12 +47,20 @@ export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange
 
   useEffect(() => {
     let cancelled = false;
+    const sharedTerritoryIds = sharedTerritoryOptions.map((item) => item.territoryId);
+    const sharedOptionsHaveDetails = sharedTerritoryOptions.some((item) => item.territoryDescription || item.medRepName);
+    if (sharedTerritoryIds.length) setTerritories(sharedTerritoryIds);
+    if (sharedTerritoryIds.length && sharedOptionsHaveDetails) {
+      setTerritoriesLoading(false);
+      return () => { cancelled = true; };
+    }
     void getDoctorTerritoryOptions()
       .then((items) => {
         if (cancelled) return;
         const territoryIds = items.map((item) => item.territoryId);
         setTerritories(territoryIds);
-        setTerritoryMetadata(items);
+        setLocalTerritoryOptions(items);
+        onTerritoryOptionsChange(items);
         const requestedTerritory = initial.get('territory');
         const nextTerritory = requestedTerritory && territoryIds.includes(requestedTerritory) ? requestedTerritory : selectedTerritoryId !== 'ALL' && territoryIds.includes(selectedTerritoryId) ? selectedTerritoryId : selectedTerritoryId;
         if (nextTerritory !== selectedTerritoryId) onTerritoryChange(nextTerritory);
@@ -60,12 +68,17 @@ export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange
       .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load doctor territories.'); })
       .finally(() => { if (!cancelled) setTerritoriesLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [onTerritoryChange, onTerritoryOptionsChange, selectedTerritoryId, sharedTerritoryOptions]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
     return () => window.clearTimeout(timer);
   }, [search]);
+
+  useEffect(() => {
+    if (!sharedTerritoryOptions.length) return;
+    setTerritories(sharedTerritoryOptions.map((item) => item.territoryId));
+  }, [sharedTerritoryOptions]);
 
   const effectiveDoctorTerritory = useMemo(() => {
     if (selectedTerritoryId !== 'ALL' && territories.includes(selectedTerritoryId)) return selectedTerritoryId;
@@ -75,13 +88,13 @@ export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange
   const territoryOptions = useMemo<DoctorTerritoryOption[]>(() => {
     const options = new Map<string, DoctorTerritoryOption>();
     for (const territoryId of territories) options.set(territoryId, { territoryId });
-    for (const territory of territoryMetadata) {
+    for (const territory of [...sharedTerritoryOptions, ...localTerritoryOptions]) {
       if (!territories.includes(territory.territoryId)) continue;
       const existing = options.get(territory.territoryId);
       options.set(territory.territoryId, { ...existing, ...territory });
     }
     return [...options.values()].sort((a, b) => a.territoryId.localeCompare(b.territoryId));
-  }, [territories, territoryMetadata]);
+  }, [localTerritoryOptions, sharedTerritoryOptions, territories]);
   const selectedTerritoryOption = selectedTerritoryId === 'ALL' ? null : territoryOptions.find((territory) => territory.territoryId === selectedTerritoryId) ?? null;
 
   useEffect(() => {

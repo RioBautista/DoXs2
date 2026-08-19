@@ -16,14 +16,16 @@ import {
   Users,
 } from 'lucide-react';
 import { getDashboardActivityOverview, getDashboardCallMapScope, getDashboardCallMapTerritoryDate, getDashboardSummary, type DashboardSummary } from '../api';
-import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardCallMapTerritory, DashboardMetrics } from '@doxs/shared';
+import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardCallMapTerritory, DashboardMetrics, DoctorTerritoryOption } from '@doxs/shared';
 import { ensureFirebaseSession, getClientFirestore } from '../lib/firebase';
 import type { AuthSession } from '../lib/auth';
 
 type DashboardProps = {
   session: AuthSession;
   selectedTerritoryId: string;
+  sharedTerritoryOptions: DoctorTerritoryOption[];
   onTerritoryChange: (territoryId: string) => void;
+  onTerritoryOptionsChange: (options: DoctorTerritoryOption[]) => void;
 };
 
 type DashboardTerritoryOption = {
@@ -477,7 +479,7 @@ function ActivityOverviewChart({ activityOverview, selectedTerritoryId, status }
   return <ReactECharts option={option} style={{ height: 280, width: '100%' }} notMerge lazyUpdate />;
 }
 
-export function Dashboard({ session, selectedTerritoryId, onTerritoryChange }: DashboardProps) {
+export function Dashboard({ session, selectedTerritoryId, sharedTerritoryOptions, onTerritoryChange, onTerritoryOptionsChange }: DashboardProps) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [subscriptionStatus, setSubscriptionStatus] = useState<'pending' | 'subscribed' | 'api-only'>('pending');
@@ -505,14 +507,22 @@ export function Dashboard({ session, selectedTerritoryId, onTerritoryChange }: D
         metrics: option.metrics ?? existing?.metrics,
       });
     };
+    sharedTerritoryOptions.forEach(mergeOption);
     summary?.territories?.forEach(mergeOption);
     activityOverview?.territories?.forEach((territory) => mergeOption(territory));
     const selectedDay = callMap?.days?.[selectedCallMapDate];
     selectedDay?.territories?.forEach(mergeOption);
     callMapTerritories.forEach((territoryId) => mergeOption({ territoryId }));
     return [...options.values()].sort((a, b) => a.territoryId.localeCompare(b.territoryId));
-  }, [activityOverview, callMap?.days, callMapTerritories, selectedCallMapDate, summary?.territories]);
+  }, [activityOverview, callMap?.days, callMapTerritories, selectedCallMapDate, sharedTerritoryOptions, summary?.territories]);
   const territoryOptionIds = useMemo(() => territoryOptions.map((territory) => territory.territoryId), [territoryOptions]);
+  useEffect(() => {
+    onTerritoryOptionsChange(territoryOptions.map((territory) => ({
+      territoryId: territory.territoryId,
+      territoryDescription: territory.territoryDescription ?? null,
+      medRepName: territory.medRepName ?? null,
+    })));
+  }, [onTerritoryOptionsChange, territoryOptions]);
   const selectedTerritoryOption = selectedTerritoryId === 'ALL' ? null : territoryOptions.find((territory) => territory.territoryId === selectedTerritoryId) ?? null;
   const selectedMetrics = useMemo(() => {
     if (selectedTerritoryId === 'ALL') return summary?.metrics ?? null;

@@ -4,6 +4,7 @@ import { getCurrentSession, login, logout } from './api';
 import { Button } from './components/ui/Button';
 import { Input } from './components/ui/Input';
 import type { AuthSession } from './lib/auth';
+import type { DoctorTerritoryOption } from '@doxs/shared';
 import { getClientContext, getDisplayClientName } from './lib/client';
 
 const Dashboard = lazy(() => import('./components/Dashboard').then((module) => ({ default: module.Dashboard })));
@@ -53,7 +54,7 @@ function navigate(path: string) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
-function AppShell({ session, activePath, selectedTerritoryId, onTerritoryChange, onLogout }: { session: AuthSession; activePath: string; selectedTerritoryId: string; onTerritoryChange: (territoryId: string) => void; onLogout: () => void }) {
+function AppShell({ session, activePath, selectedTerritoryId, territoryOptions, onTerritoryChange, onTerritoryOptionsChange, onLogout }: { session: AuthSession; activePath: string; selectedTerritoryId: string; territoryOptions: DoctorTerritoryOption[]; onTerritoryChange: (territoryId: string) => void; onTerritoryOptionsChange: (options: DoctorTerritoryOption[]) => void; onLogout: () => void }) {
   const activeClientName = getDisplayClientName(session.clientSlug);
   const isReports = activePath === '/reports';
   const isDoctors = activePath === '/doctors';
@@ -104,7 +105,7 @@ function AppShell({ session, activePath, selectedTerritoryId, onTerritoryChange,
 
         <AppErrorBoundary>
           <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">Loading…</div>}>
-            {isReports ? <ReportsPage clientName={activeClientName} /> : isDoctors ? <DoctorsPage clientName={activeClientName} selectedTerritoryId={selectedTerritoryId} onTerritoryChange={onTerritoryChange} /> : <Dashboard session={session} selectedTerritoryId={selectedTerritoryId} onTerritoryChange={onTerritoryChange} />}
+            {isReports ? <ReportsPage clientName={activeClientName} /> : isDoctors ? <DoctorsPage clientName={activeClientName} selectedTerritoryId={selectedTerritoryId} territoryOptions={territoryOptions} onTerritoryChange={onTerritoryChange} onTerritoryOptionsChange={onTerritoryOptionsChange} /> : <Dashboard session={session} selectedTerritoryId={selectedTerritoryId} sharedTerritoryOptions={territoryOptions} onTerritoryChange={onTerritoryChange} onTerritoryOptionsChange={onTerritoryOptionsChange} />}
           </Suspense>
         </AppErrorBoundary>
       </section>
@@ -133,6 +134,7 @@ export default function App() {
   const [checkedSession, setCheckedSession] = useState(false);
   const [activePath, setActivePath] = useState(() => normalizePath(window.location.pathname));
   const [selectedTerritoryId, setSelectedTerritoryId] = useState(() => window.localStorage.getItem('doxs:selectedTerritoryId') || 'ALL');
+  const [territoryOptions, setTerritoryOptions] = useState<DoctorTerritoryOption[]>([]);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -174,6 +176,26 @@ export default function App() {
   const handleTerritoryChange = useCallback((territoryId: string) => {
     setSelectedTerritoryId(territoryId);
     window.localStorage.setItem('doxs:selectedTerritoryId', territoryId);
+  }, []);
+
+  const handleTerritoryOptionsChange = useCallback((incomingOptions: DoctorTerritoryOption[]) => {
+    if (!incomingOptions.length) return;
+    setTerritoryOptions((current) => {
+      const byId = new Map<string, DoctorTerritoryOption>();
+      for (const option of current) byId.set(option.territoryId, option);
+      for (const option of incomingOptions) {
+        if (!option.territoryId) continue;
+        const existing = byId.get(option.territoryId);
+        byId.set(option.territoryId, {
+          ...existing,
+          ...option,
+          territoryDescription: option.territoryDescription ?? existing?.territoryDescription ?? null,
+          medRepName: option.medRepName ?? existing?.medRepName ?? null,
+        });
+      }
+      const next = [...byId.values()].sort((a, b) => a.territoryId.localeCompare(b.territoryId));
+      return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+    });
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -221,7 +243,7 @@ export default function App() {
   }
 
   if (session) {
-    return <AppShell session={session} activePath={activePath} selectedTerritoryId={selectedTerritoryId} onTerritoryChange={handleTerritoryChange} onLogout={handleLogout} />;
+    return <AppShell session={session} activePath={activePath} selectedTerritoryId={selectedTerritoryId} territoryOptions={territoryOptions} onTerritoryChange={handleTerritoryChange} onTerritoryOptionsChange={handleTerritoryOptionsChange} onLogout={handleLogout} />;
   }
 
   return (
