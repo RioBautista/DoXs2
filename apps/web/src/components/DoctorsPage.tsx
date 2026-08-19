@@ -12,6 +12,10 @@ function plannedVisitCount(doctor: DoctorDirectoryRow) {
   return doctor.visitDays.filter((day) => day !== null).length;
 }
 
+function manilaToday() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
 export function DoctorsPage({ clientName }: DoctorsPageProps) {
   const initial = new URLSearchParams(window.location.search);
   const [letter, setLetter] = useState(initial.get('letter') ?? '');
@@ -142,6 +146,12 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
   const dayTotals = totals?.byWeekDay ?? loadedDayTotals;
   const grandTotal = totals?.grandTotal ?? doctors.reduce((total, doctor) => total + plannedVisitCount(doctor), 0);
   const actualGrandTotal = actualWeekTotals.reduce((sum, count) => sum + count, 0);
+  const todayDate = new Date(`${manilaToday()}T00:00:00.000Z`);
+  const fallbackCycleStart = Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), 1);
+  const todayCycleStart = actualCycle ? new Date(`${actualCycle.startDate}T00:00:00.000Z`).getTime() : fallbackCycleStart;
+  const todayWeekIndex = Math.floor((todayDate.getTime() - todayCycleStart) / (7 * 24 * 60 * 60 * 1000));
+  const todayDayNumber = todayDate.getUTCDay();
+  const isTodayColumn = (weekIndex: number, dayNumber: number) => weekIndex === todayWeekIndex && dayNumber === todayDayNumber;
 
   return (
     <div className="space-y-5">
@@ -194,10 +204,10 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
                 <div key={week} className={`border-l border-slate-300 ${weekIndex % 2 ? 'bg-indigo-100' : 'bg-blue-50'}`}>
                   <div className="border-b border-slate-300 px-2 py-1.5 text-center">{week}</div>
                   <div className="grid grid-cols-5 text-[10px] font-medium text-slate-500">
-                    {['M', 'Tu', 'W', 'Th', 'F'].map((day) => <div key={day} className="border-l border-slate-200 px-1 py-1 text-center first:border-l-0">{day}</div>)}
+                    {['M', 'Tu', 'W', 'Th', 'F'].map((day, dayIndex) => <div key={day} className={`border-l border-slate-200 px-1 py-1 text-center first:border-l-0 ${isTodayColumn(weekIndex, dayIndex + 1) ? 'bg-emerald-50 text-emerald-800' : ''}`}>{day}</div>)}
                   </div>
                   <div className="grid grid-cols-5 border-t border-slate-200 text-[10px] font-bold text-slate-700">
-                    {dayTotals[weekIndex].map((total, dayIndex) => <div key={dayIndex} className="border-l border-slate-200 px-1 py-1 text-center first:border-l-0">{total}</div>)}
+                    {dayTotals[weekIndex].map((total, dayIndex) => <div key={dayIndex} className={`border-l border-slate-200 px-1 py-1 text-center first:border-l-0 ${isTodayColumn(weekIndex, dayIndex + 1) ? 'bg-emerald-50 text-emerald-800' : ''}`}>{total}</div>)}
                   </div>
                 </div>
               ))}
@@ -221,7 +231,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
                           const actualCount = actualCallCells.get(`${doctor.doctorId}:${weekIndex}:${dayNumber}`) ?? 0;
                           const isPlanned = day === dayNumber;
                           return (
-                            <div key={dayNumber} className="flex min-h-11 items-center justify-center border-l border-slate-200 first:border-l-0">
+                            <div key={dayNumber} className={`flex min-h-11 items-center justify-center border-l border-slate-200 first:border-l-0 ${isTodayColumn(weekIndex, dayNumber) ? 'bg-emerald-50/80' : ''}`}>
                               {actualCount ? (
                                 <span title={`${actualCount} actual call${actualCount === 1 ? '' : 's'} · ${isPlanned ? 'As scheduled' : 'Not scheduled'}`} className={`flex h-6 w-6 items-center justify-center rounded-full text-white shadow-sm ${isPlanned ? 'bg-emerald-500' : 'bg-amber-400'}`}>
                                   <Check className="h-4 w-4 stroke-[3]" />
