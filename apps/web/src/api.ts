@@ -1,7 +1,7 @@
-import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardSummary, DoctorActualCallsResponse, DoctorDirectoryResponse, LoginUser, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
+import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardSummary, DoctorActualCallsResponse, DoctorDirectoryResponse, DoctorTerritoryOption, LoginUser, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
 
 export type { DashboardSummary, ReportDefinitionSummary, ReportRunResult } from '@doxs/shared';
-export type { DoctorDirectoryResponse, DoctorDirectoryRow } from '@doxs/shared';
+export type { DoctorDirectoryResponse, DoctorDirectoryRow, DoctorTerritoryOption } from '@doxs/shared';
 
 type LoginRequest = {
   username: string;
@@ -82,10 +82,16 @@ export async function getDashboardSummary(): Promise<DashboardSummary> {
 }
 
 export async function getDoctorTerritories(): Promise<string[]> {
+  const options = await getDoctorTerritoryOptions();
+  return options.map((territory) => territory.territoryId);
+}
+
+export async function getDoctorTerritoryOptions(): Promise<DoctorTerritoryOption[]> {
   const response = await fetchJson(`${API_BASE}/doctors/territories`, { method: 'GET', credentials: 'include' });
-  const data = await response.json() as { ok?: boolean; territories?: string[]; message?: string };
+  const data = await response.json() as { ok?: boolean; territories?: string[]; territoryOptions?: DoctorTerritoryOption[]; message?: string };
   if (!response.ok) throw new Error(data.message ?? 'Doctor territories request failed.');
-  return data.territories ?? [];
+  if (data.territoryOptions?.length) return data.territoryOptions;
+  return (data.territories ?? []).map((territoryId) => ({ territoryId }));
 }
 
 export async function getDoctors(params: { territory: string; letter?: string; search?: string; cursor?: string; limit?: number }): Promise<DoctorDirectoryResponse> {

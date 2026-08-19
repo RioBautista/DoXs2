@@ -2,7 +2,7 @@ import sql from 'mssql';
 import type { FastifyBaseLogger } from 'fastify';
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import type { DoctorDirectoryResponse, DoctorDirectoryRow } from '@doxs/shared';
+import type { DoctorDirectoryResponse, DoctorDirectoryRow, DoctorTerritoryOption } from '@doxs/shared';
 import { getAdminFirestore } from './firestore-admin.js';
 import { connectClientMSSQL, getClientMSSQLConfig } from './mssql-dashboard.js';
 
@@ -28,6 +28,73 @@ export async function listDoctorTerritories(clientSlug: string | null): Promise<
       order by territory_id
     `);
     return result.recordset.map((row) => clean(row.territory_id)).filter(Boolean);
+  } finally {
+    if (pool) await pool.close();
+  }
+}
+
+
+export async function listDoctorTerritoryOptions(clientSlug: string | null, scopedTerritories?: string[]): Promise<DoctorTerritoryOption[]> {
+  const config = getClientMSSQLConfig(clientSlug);
+  if (!config) throw new Error('Client MSSQL doctor directory is not configured.');
+
+  const scope = normalizedTerritories(scopedTerritories ?? []);
+  let pool: sql.ConnectionPool | null = null;
+  try {
+    pool = await connectClientMSSQL(config);
+    const territoryRequest = pool.request();
+    scope.forEach((territory, index) => territoryRequest.input(`territory${index}`, sql.VarChar(128), territory));
+    const scopePredicate = scope.length ? `and ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) in (${scope.map((_, index) => `@territory${index}`).join(', ')})` : '';
+    const territoryResult = await territoryRequest.query<{ territory_id: string | null }>(`
+      select distinct ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) as territory_id
+      from [dbo].[DOCTOR_CLINIC]
+      where TERRITORY_ID is not null and ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) <> ''
+        ${scopePredicate}
+      order by territory_id
+    `);
+    const options = new Map<string, DoctorTerritoryOption>();
+    for (const row of territoryResult.recordset) {
+      const territoryId = clean(row.territory_id);
+      if (territoryId) options.set(territoryId, { territoryId });
+    }
+
+    try {
+      const metadataRequest = pool.request();
+      const territoryIds = [...options.keys()];
+      territoryIds.forEach((territoryId, index) => metadataRequest.input(`metadataTerritory${index}`, sql.VarChar(128), territoryId));
+      const metadataPredicate = territoryIds.length ? `and ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) in (${territoryIds.map((_, index) => `@metadataTerritory${index}`).join(', ')})` : '';
+      const metadataResult = await metadataRequest.query<{ territory_id: string | null; territory_description: string | null; med_rep_name: string | null }>(`
+        select territory_id, territory_description, med_rep_name
+        from (
+          select
+            ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) as territory_id,
+            nullif(ltrim(rtrim(cast(TERRITORY_DESCRIPTION as varchar(256)))), '') as territory_description,
+            nullif(ltrim(rtrim(cast(MED_REP_NAME as varchar(256)))), '') as med_rep_name,
+            row_number() over (
+              partition by ltrim(rtrim(cast(TERRITORY_ID as varchar(128))))
+              order by try_convert(datetime2, ITINERARY_DATE) desc, ltrim(rtrim(cast(TERRITORY_ID as varchar(128))))
+            ) as rn
+          from [dbo].[PSR_ITINERARY]
+          where TERRITORY_ID is not null and ltrim(rtrim(cast(TERRITORY_ID as varchar(128)))) <> ''
+            ${metadataPredicate}
+        ) ranked
+        where rn = 1
+      `);
+      for (const row of metadataResult.recordset) {
+        const territoryId = clean(row.territory_id);
+        const existing = options.get(territoryId);
+        if (!existing) continue;
+        options.set(territoryId, {
+          ...existing,
+          territoryDescription: clean(row.territory_description) || null,
+          medRepName: clean(row.med_rep_name) || null,
+        });
+      }
+    } catch {
+      // Keep the doctor territory list usable even if optional metadata columns/tables are unavailable.
+    }
+
+    return [...options.values()].sort((a, b) => a.territoryId.localeCompare(b.territoryId));
   } finally {
     if (pool) await pool.close();
   }

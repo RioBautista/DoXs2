@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Check, Loader2, Search, Stethoscope } from 'lucide-react';
-import { getDashboardSummary, getDoctorActualCalls, getDoctors, getDoctorTerritories, type DoctorDirectoryRow } from '../api';
+import { getDoctorActualCalls, getDoctors, getDoctorTerritoryOptions, type DoctorDirectoryRow } from '../api';
 import type { DashboardMetrics, DoctorActualCallsResponse, DoctorDirectoryResponse } from '@doxs/shared';
 
 type DoctorsPageProps = { clientName: string; selectedTerritoryId: string; onTerritoryChange: (territoryId: string) => void };
@@ -47,12 +47,14 @@ export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange
 
   useEffect(() => {
     let cancelled = false;
-    void getDoctorTerritories()
+    void getDoctorTerritoryOptions()
       .then((items) => {
         if (cancelled) return;
-        setTerritories(items);
+        const territoryIds = items.map((item) => item.territoryId);
+        setTerritories(territoryIds);
+        setTerritoryMetadata(items);
         const requestedTerritory = initial.get('territory');
-        const nextTerritory = requestedTerritory && items.includes(requestedTerritory) ? requestedTerritory : selectedTerritoryId !== 'ALL' && items.includes(selectedTerritoryId) ? selectedTerritoryId : selectedTerritoryId;
+        const nextTerritory = requestedTerritory && territoryIds.includes(requestedTerritory) ? requestedTerritory : selectedTerritoryId !== 'ALL' && territoryIds.includes(selectedTerritoryId) ? selectedTerritoryId : selectedTerritoryId;
         if (nextTerritory !== selectedTerritoryId) onTerritoryChange(nextTerritory);
       })
       .catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Could not load doctor territories.'); })
@@ -64,19 +66,6 @@ export function DoctorsPage({ clientName, selectedTerritoryId, onTerritoryChange
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 350);
     return () => window.clearTimeout(timer);
   }, [search]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getDashboardSummary()
-      .then((result) => {
-        if (cancelled) return;
-        setTerritoryMetadata(result.territories ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setTerritoryMetadata([]);
-      });
-    return () => { cancelled = true; };
-  }, []);
 
   const effectiveDoctorTerritory = useMemo(() => {
     if (selectedTerritoryId !== 'ALL' && territories.includes(selectedTerritoryId)) return selectedTerritoryId;

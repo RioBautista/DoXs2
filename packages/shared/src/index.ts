@@ -4,6 +4,12 @@ export type LoginUser = {
   roles: string[];
 };
 
+export type DoctorTerritoryOption = {
+  territoryId: string;
+  territoryDescription?: string | null;
+  medRepName?: string | null;
+};
+
 export type DoctorDirectoryRow = {
   doctorId: string;
   territoryId: string;

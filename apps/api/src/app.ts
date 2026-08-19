@@ -10,7 +10,7 @@ import { runDashboardCacheFreshnessCheck } from './cache-freshness.js';
 import { checkClientMSSQLConnection, getClientUserTerritories, getDashboardActivityOverview, getDashboardCallMap, getDashboardCallMapScopeMetadata, getDashboardSummary, inspectClientMSSQLDashboardSchema } from './mssql-dashboard.js';
 import { listReportDefinitions, runReportDefinition } from './report-engine.js';
 import { getCallMapTerritoryDate } from './call-map-store.js';
-import { doctorDirectoryQuerySchema, listDoctorTerritories } from './doctor-directory.js';
+import { doctorDirectoryQuerySchema, listDoctorTerritories, listDoctorTerritoryOptions } from './doctor-directory.js';
 import { getDoctorTerritoryDirectory } from './doctor-directory-cache.js';
 import { getAdminFirestore } from './firestore-admin.js';
 import { getUserTerritoriesFirestoreFirst } from './user-territory-replica.js';
@@ -508,8 +508,9 @@ export function buildApp() {
     const isManager = session.roles.some((role) => /admin|manager|district|region/i.test(role));
     if (!assigned.length && !isManager) return reply.status(403).send({ ok: false, message: 'No territory scope is assigned to this user.' });
     try {
-      const territories = assigned.length ? [...assigned].sort() : await listDoctorTerritories(effectiveClientSlug);
-      return reply.status(200).send({ ok: true, territories, scope: { source: territoryScope.source, cachePath: territoryScope.cachePath } });
+      const territoryOptions = await listDoctorTerritoryOptions(effectiveClientSlug, assigned.length ? assigned : undefined);
+      const territories = territoryOptions.map((territory) => territory.territoryId);
+      return reply.status(200).send({ ok: true, territories, territoryOptions, scope: { source: territoryScope.source, cachePath: territoryScope.cachePath } });
     } catch (error) {
       request.log.error({ error, clientSlug: effectiveClientSlug, username: session.username }, 'doctor territory request failed');
       return reply.status(503).send({ ok: false, message: 'Doctor territories are temporarily unavailable.' });
