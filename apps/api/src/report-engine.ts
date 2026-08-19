@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { ReportColumnDefinition, ReportDefinitionSummary, ReportFilterDefinition, ReportRunResult } from '@doxs/shared';
 import sql from 'mssql';
 import { z } from 'zod';
@@ -52,6 +53,69 @@ const reportDefinitionSchema = z.object({
 type ReportDefinition = z.infer<typeof reportDefinitionSchema> & { id: string };
 
 const REPORTS_COLLECTION = process.env.REPORTS_COLLECTION || 'reportDefinitions';
+const REPORT_RESULT_CACHE_COLLECTION = process.env.REPORT_RESULT_CACHE_COLLECTION || 'reportResultCache';
+const REPORT_RESULT_CACHE_TTL_MS = Number(process.env.REPORT_RESULT_CACHE_TTL_MS ?? 6 * 60 * 60 * 1000);
+
+type ParsedFilterValues = Record<string, string | number | boolean | null>;
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function reportCachePath(report: ReportDefinition, session: SessionContext, filters: ParsedFilterValues) {
+  const clientSlug = normalized(session.clientSlug) || 'default';
+  const hash = crypto.createHash('sha256').update(stableStringify({
+    reportId: report.id,
+    sql: report.source.sql,
+    maxRows: report.source.maxRows,
+    clientSlug,
+    filters,
+    territories: session.territories.map((territory) => territory.trim()).filter(Boolean).sort(),
+  })).digest('hex').slice(0, 48);
+  return `${REPORT_RESULT_CACHE_COLLECTION}/${clientSlug}__${report.id}__${hash}`;
+}
+
+async function readFreshReportResultCache(cachePath: string): Promise<ReportRunResult | null> {
+  const snapshot = await getAdminFirestore().doc(cachePath).get();
+  const data = snapshot.data() as (ReportRunResult & { cache?: ReportRunResult['cache'] }) | undefined;
+  if (!data?.ok || !data.cache?.expiresAt || Date.parse(data.cache.expiresAt) <= Date.now()) return null;
+  return {
+    ...data,
+    cache: {
+      ...data.cache,
+      source: 'firestore-cache',
+      cachePath,
+    },
+  };
+}
+
+function stripInternalSortFields(row: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith('__sort_')));
+}
+
+async function writeReportResultCache(cachePath: string, result: Omit<ReportRunResult, 'cache'>) {
+  const generatedAt = result.generatedAt ?? new Date().toISOString();
+  const expiresAt = new Date(Date.now() + REPORT_RESULT_CACHE_TTL_MS).toISOString();
+  const cached: ReportRunResult = {
+    ...result,
+    generatedAt,
+    cache: {
+      source: 'mssql-refresh',
+      cachePath,
+      generatedAt,
+      expiresAt,
+    },
+  };
+  await getAdminFirestore().doc(cachePath).set(JSON.parse(JSON.stringify(cached)));
+  return cached;
+}
 
 function toSummary(report: ReportDefinition): ReportDefinitionSummary {
   return {
@@ -185,24 +249,46 @@ export async function runReportDefinition(reportId: string, session: SessionCont
   if (!config) return { ok: false, report: toSummary(report), message: 'Client MSSQL data source is not configured.' };
 
   assertReadOnlySelect(report.source.sql);
+  const parsedFilters = Object.fromEntries(report.filters.map((filter) => [filter.id, parseFilterValue(filter, rawFilters[filter.id])])) as ParsedFilterValues;
+  const cachePath = reportCachePath(report, session, parsedFilters);
+  try {
+    const cached = await readFreshReportResultCache(cachePath);
+    if (cached) return cached;
+  } catch (error) {
+    // Cache must not block report execution.
+  }
+
   let pool: sql.ConnectionPool | null = null;
   try {
     pool = await connectClientMSSQL(config);
     const request = pool.request();
     for (const filter of report.filters) {
-      bindFilter(request, filter, parseFilterValue(filter, rawFilters[filter.id]));
+      bindFilter(request, filter, parsedFilters[filter.id]);
     }
     const query = applyTerritoryScope(report.source.sql, request, report, session.territories);
-    const result = await request.query<Record<string, unknown>>(query);
-    const rows = result.recordset.slice(0, report.source.maxRows);
-    return {
+    const queryResult = await request.query<Record<string, unknown>>(query);
+    const rows = queryResult.recordset.slice(0, report.source.maxRows).map(stripInternalSortFields);
+    const result: Omit<ReportRunResult, 'cache'> = {
       ok: true,
       report: toSummary(report),
       rows,
       rowCount: rows.length,
-      truncated: result.recordset.length > rows.length,
+      truncated: queryResult.recordset.length > rows.length,
       generatedAt: new Date().toISOString(),
     };
+    try {
+      return await writeReportResultCache(cachePath, result);
+    } catch (error) {
+      return {
+        ...result,
+        cache: {
+          source: 'mssql-refresh',
+          cachePath,
+          generatedAt: result.generatedAt ?? new Date().toISOString(),
+          expiresAt: new Date(Date.now() + REPORT_RESULT_CACHE_TTL_MS).toISOString(),
+        },
+      };
+    }
   } finally {
     if (pool) await pool.close();
   }

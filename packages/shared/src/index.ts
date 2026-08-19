@@ -266,4 +266,10 @@ export type ReportRunResult = {
   truncated?: boolean;
   generatedAt?: string;
   message?: string;
+  cache?: {
+    source: 'firestore-cache' | 'mssql-refresh';
+    cachePath: string;
+    generatedAt: string;
+    expiresAt: string;
+  };
 };
