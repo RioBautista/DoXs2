@@ -4,7 +4,6 @@ import { getDoctorActualCalls, getDoctors, getDoctorTerritories, type DoctorDire
 import type { DoctorActualCallsResponse, DoctorDirectoryResponse } from '@doxs/shared';
 
 type DoctorsPageProps = { clientName: string };
-const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const weekLabels = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'];
 const dayLabels: Record<number, string> = { 1: 'M', 2: 'Tu', 3: 'W', 4: 'Th', 5: 'F' };
 
@@ -22,7 +21,6 @@ function LoadingState({ label }: { label: string }) {
 
 export function DoctorsPage({ clientName }: DoctorsPageProps) {
   const initial = new URLSearchParams(window.location.search);
-  const [letter, setLetter] = useState(initial.get('letter') ?? '');
   const [search, setSearch] = useState(initial.get('search') ?? '');
   const [territories, setTerritories] = useState<string[]>([]);
   const [territoriesLoading, setTerritoriesLoading] = useState(true);
@@ -61,7 +59,6 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
   useEffect(() => {
     const params = new URLSearchParams();
     if (selectedTerritory) params.set('territory', selectedTerritory);
-    if (letter) params.set('letter', letter);
     if (debouncedSearch) params.set('search', debouncedSearch);
     window.history.replaceState(null, '', `/doctors${params.size ? `?${params.toString()}` : ''}`);
 
@@ -81,7 +78,6 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
         do {
           const result = await getDoctors({
             territory: selectedTerritory,
-            letter: letter || undefined,
             search: debouncedSearch || undefined,
             cursor,
             limit: 10,
@@ -113,7 +109,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [letter, debouncedSearch, selectedTerritory]);
+  }, [debouncedSearch, selectedTerritory]);
 
   useEffect(() => {
     if (!showActualCalls || !selectedTerritory) return;
@@ -179,11 +175,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search surname, first name, or MD ID" className="w-full rounded-xl border border-slate-300 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-blue-100" />
           </label>
         </div>
-        <div className="mt-5 flex flex-wrap gap-1" aria-label="Filter doctors by surname initial">
-          <button type="button" onClick={() => setLetter('')} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${!letter ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>All</button>
-          {letters.map((item) => <button key={item} type="button" onClick={() => setLetter(item)} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${letter === item ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{item}</button>)}
-        </div>
-        <div className="mt-4 border-t border-slate-200 pt-4">
+        <div className="mt-5 border-t border-slate-200 pt-4">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Territory</p>
           {territoriesLoading ? <div className="flex justify-start py-1"><LoadingState label="Loading assigned territories…" /></div> : territories.length ? (
             <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Doctor territories">
