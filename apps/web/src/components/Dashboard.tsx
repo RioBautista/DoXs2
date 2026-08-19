@@ -526,7 +526,7 @@ export function Dashboard({ session, selectedTerritoryId, onTerritoryChange }: D
   }, [activityOverview, selectedTerritoryId]);
 
   useEffect(() => {
-    if (selectedTerritoryId === 'ALL') return;
+    if (selectedTerritoryId === 'ALL' || !territoryOptionIds.length) return;
     if (!territoryOptionIds.includes(selectedTerritoryId)) onTerritoryChange('ALL');
   }, [territoryOptionIds, selectedTerritoryId, onTerritoryChange]);
 
