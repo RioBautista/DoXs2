@@ -82,8 +82,11 @@ function reportRowType(row: Record<string, unknown>) {
 
 function rowClass(row: Record<string, unknown>, index: number) {
   const type = reportRowType(row);
+  if (type === 'territory-total') return 'bg-sky-50 font-bold';
+  if (type === 'district-total') return 'bg-blue-100 font-bold';
+  if (type === 'region-total') return 'bg-indigo-100 font-bold';
   if (type === 'grand-total') return 'bg-amber-200 font-bold';
-  if (type.endsWith('-total')) return 'bg-amber-100 font-bold';
+  if (type.endsWith('-total')) return 'bg-slate-100 font-bold';
   return index % 2 === 0 ? 'bg-white' : 'bg-slate-50/40';
 }
 
