@@ -16,12 +16,20 @@ import {
   Users,
 } from 'lucide-react';
 import { getDashboardActivityOverview, getDashboardCallMapScope, getDashboardCallMapTerritoryDate, getDashboardSummary, type DashboardSummary } from '../api';
-import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardCallMapTerritory } from '@doxs/shared';
+import type { DashboardActivityOverview, DashboardCallMap, DashboardCallMapDay, DashboardCallMapTerritory, DashboardMetrics } from '@doxs/shared';
 import { ensureFirebaseSession, getClientFirestore } from '../lib/firebase';
 import type { AuthSession } from '../lib/auth';
 
 type DashboardProps = {
   session: AuthSession;
+};
+
+type DashboardTerritoryOption = {
+  territoryId: string;
+  territoryDescription?: string | null;
+  medRepName?: string | null;
+  color?: string | null;
+  metrics?: DashboardMetrics;
 };
 
 function StatCard({ label, value, helper, icon: Icon, isLoading = false }: { label: string; value: string; helper: string; icon: typeof Activity; isLoading?: boolean }) {
@@ -62,6 +70,30 @@ function formatMetric(value: number | null | undefined) {
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined) return '—';
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`;
+}
+
+
+function territoryDisplayName(territory: Pick<DashboardTerritoryOption, 'territoryId' | 'territoryDescription'>) {
+  return territory.territoryDescription ? `${territory.territoryId} — ${territory.territoryDescription}` : territory.territoryId;
+}
+
+function makeMetricSet(targetCalls: number | null, actualCalls: number | null, doctorsReached: number | null, doctorsPlanned: number | null): DashboardMetrics {
+  return {
+    targetCalls,
+    actualCalls,
+    callRate: targetCalls && targetCalls > 0 && actualCalls !== null ? Number(((actualCalls / targetCalls) * 100).toFixed(1)) : null,
+    doctorsReached,
+    doctorsPlanned,
+    doctorsReachedRate: doctorsPlanned && doctorsPlanned > 0 && doctorsReached !== null ? Number(((doctorsReached / doctorsPlanned) * 100).toFixed(1)) : null,
+  };
+}
+
+function activityMetrics(activityOverview: DashboardActivityOverview | null, territoryId: string): DashboardMetrics | null {
+  const territory = activityOverview?.territories?.find((item) => item.territoryId === territoryId);
+  if (!territory) return null;
+  const targetCalls = territory.points.reduce((sum, point) => sum + point.targetCalls, 0);
+  const actualCalls = territory.points.reduce((sum, point) => sum + point.actualCalls, 0);
+  return makeMetricSet(targetCalls, actualCalls, null, null);
 }
 
 function EmptyPanel({ title, description }: { title: string; description: string }) {
@@ -130,22 +162,32 @@ function mergeCallMapDay(current: DashboardCallMap | null, cycle: DashboardCallM
   };
 }
 
-function CallMap({ callMap, status, progress, selectedDate, onDateChange, loadedTerritoryIds, loadingTerritoryIds, onTerritorySelect }: { callMap: DashboardCallMap | null; status: 'loading' | 'loaded' | 'error'; progress?: { loaded: number; total: number }; selectedDate: string; onDateChange: (date: string) => void; loadedTerritoryIds: Set<string>; loadingTerritoryIds: Set<string>; onTerritorySelect: (territoryId: string) => void }) {
+function CallMap({ callMap, status, progress, selectedDate, selectedTerritoryId, onDateChange, onTerritoryChange, loadedTerritoryIds, loadingTerritoryIds, onTerritorySelect }: { callMap: DashboardCallMap | null; status: 'loading' | 'loaded' | 'error'; progress?: { loaded: number; total: number }; selectedDate: string; selectedTerritoryId: string; onDateChange: (date: string) => void; onTerritoryChange: (territoryId: string) => void; loadedTerritoryIds: Set<string>; loadingTerritoryIds: Set<string>; onTerritorySelect: (territoryId: string) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
   const selectedNodeRef = useRef<Record<string, [number, number]>>({});
-  const [selectedTerritory, setSelectedTerritory] = useState<string | null>(null);
   const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined;
   const [mapError, setMapError] = useState<string | null>(null);
   const mapData = callMap?.cycle && callMap?.days ? callMap : null;
-  const selectedDay = mapData?.days?.[selectedDate] ?? null;
+  const rawSelectedDay = mapData?.days?.[selectedDate] ?? null;
+  const selectedDay = useMemo<DashboardCallMapDay | null>(() => {
+    if (!rawSelectedDay || selectedTerritoryId === 'ALL') return rawSelectedDay;
+    return {
+      ...rawSelectedDay,
+      territories: rawSelectedDay.territories.filter((territory) => territory.territoryId === selectedTerritoryId),
+      calls: rawSelectedDay.calls.filter((call) => call.territoryId === selectedTerritoryId),
+      nodes: rawSelectedDay.nodes.filter((node) => node.territoryId === selectedTerritoryId),
+      sequences: rawSelectedDay.sequences.filter((sequence) => sequence.territoryId === selectedTerritoryId),
+    };
+  }, [rawSelectedDay, selectedTerritoryId]);
   const nodes = useMemo(() => selectedDay?.nodes ?? [], [selectedDay?.nodes]);
   const calls = useMemo(() => selectedDay?.calls ?? [], [selectedDay?.calls]);
-  const territories = useMemo(() => selectedDay?.territories ?? [], [selectedDay?.territories]);
-  const selectedTerritoryDetail = territories.find((territory) => territory.territoryId === selectedTerritory) ?? territories[0] ?? null;
-  const panelTerritoryId = selectedTerritory ?? selectedTerritoryDetail?.territoryId ?? null;
-  const panelCalls = panelTerritoryId ? calls.filter((call) => call.territoryId === panelTerritoryId) : [];
+  const territories = useMemo(() => rawSelectedDay?.territories ?? [], [rawSelectedDay?.territories]);
+  const visibleTerritories = useMemo(() => selectedDay?.territories ?? [], [selectedDay?.territories]);
+  const selectedTerritoryDetail = selectedTerritoryId === 'ALL' ? visibleTerritories[0] ?? null : territories.find((territory) => territory.territoryId === selectedTerritoryId) ?? null;
+  const panelTerritoryId = selectedTerritoryId === 'ALL' ? selectedTerritoryDetail?.territoryId ?? null : selectedTerritoryId;
+  const panelCalls = panelTerritoryId ? (rawSelectedDay?.calls ?? []).filter((call) => call.territoryId === panelTerritoryId) : [];
 
   function zoomOutMap() {
     const map = mapRef.current;
@@ -211,7 +253,7 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange, loaded
       mapRef.current?.remove();
       mapRef.current = null;
     };
-  }, [mapboxToken, nodes.length]);
+  }, [mapboxToken]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -246,7 +288,7 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange, loaded
 
     const bounds = new mapboxgl.LngLatBounds();
     nodes.forEach((node) => {
-      const territory = territories.find((item) => item.territoryId === node.territoryId);
+      const territory = visibleTerritories.find((item) => item.territoryId === node.territoryId);
       const color = territory?.color ?? '#2563eb';
       const nodeCalls = calls.filter((call) => node.callIds.includes(call.id));
       const lngLat: [number, number] = [node.longitude, node.latitude];
@@ -277,7 +319,7 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange, loaded
     });
 
     if (nodes.length) map.fitBounds(bounds, { padding: 64, maxZoom: 15, duration: 500 });
-  }, [selectedDay, nodes, calls, territories]);
+  }, [selectedDay, nodes, calls, visibleTerritories]);
 
   const selectedTerritoryColor = selectedTerritoryDetail?.color ?? '#2563eb';
 
@@ -312,17 +354,17 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange, loaded
                 key={territory.territoryId}
                 type="button"
                 onClick={() => {
-                  setSelectedTerritory(territory.territoryId);
+                  onTerritoryChange(territory.territoryId);
                   if (!isLoaded) onTerritorySelect(territory.territoryId);
                   if (hasGpsCall) focusBounds(territory.bounds);
                   else zoomOutMap();
                 }}
                 title={`${territory.medRepName ?? (isLoaded ? 'MedRep not available' : 'Territory metadata loading')} · ${territory.territoryDescription ?? (isLoaded ? 'Territory description not available' : 'Click to load this territory now')}`}
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:bg-slate-50 ${isLoadingTerritory ? 'ring-2 ring-slate-200' : ''}`}
-                style={{ borderColor: territory.color, color: territory.color, opacity: isLoaded ? 1 : 0.45 }}
+                style={{ borderColor: territory.color, color: territory.color, opacity: selectedTerritoryId !== 'ALL' && selectedTerritoryId !== territory.territoryId ? 0.35 : isLoaded ? 1 : 0.45 }}
               >
                 {hasGpsCall ? <span className="h-2.5 w-2.5 rounded-full" style={{ background: territory.color }} /> : null}
-                {territory.territoryId} · {isLoaded ? territory.callCount : '…'}
+                {territory.territoryId} · {territory.territoryDescription ?? (isLoaded ? `${territory.callCount} calls` : '…')}
               </button>
             );
           })}
@@ -370,7 +412,7 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange, loaded
             </div>
           </aside>
         </div>
-      <p className="mt-3 text-xs text-slate-500">{calls.length} calls · {nodes.length} map nodes. {status === 'loading' && progress?.total ? `Loaded ${progress.loaded}/${progress.total} territories. ` : ''}Data is served by territory/date map documents with user territory scope applied.</p>
+      <p className="mt-3 text-xs text-slate-500">{calls.length} visible calls · {nodes.length} visible map nodes. {selectedTerritoryId !== 'ALL' ? 'Other territories are hidden client-side. ' : ''}{status === 'loading' && progress?.total ? `Loaded ${progress.loaded}/${progress.total} territories. ` : ''}Data is served by territory/date map documents with user territory scope applied.</p>
     </div>
   );
 }
@@ -440,7 +482,7 @@ export function Dashboard({ session }: DashboardProps) {
   const [activityStatus, setActivityStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [callMapStatus, setCallMapStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [activityOverview, setActivityOverview] = useState<DashboardActivityOverview | null>(null);
-  const [selectedActivityTerritoryId, setSelectedActivityTerritoryId] = useState('ALL');
+  const [selectedTerritoryId, setSelectedTerritoryId] = useState('ALL');
   const [callMap, setCallMap] = useState<DashboardCallMap | null>(null);
   const [callMapCycle, setCallMapCycle] = useState<DashboardCallMap['cycle'] | null>(null);
   const [callMapTerritories, setCallMapTerritories] = useState<string[]>([]);
@@ -449,18 +491,43 @@ export function Dashboard({ session }: DashboardProps) {
   const [loadedTerritoryIds, setLoadedTerritoryIds] = useState<Set<string>>(() => new Set());
   const [loadingTerritoryIds, setLoadingTerritoryIds] = useState<Set<string>>(() => new Set());
   const loadTerritoryNowRef = useRef<((territoryId: string) => void) | null>(null);
-  const activityTerritoryOptions = useMemo(() => activityOverview?.territories?.map((territory) => territory.territoryId).filter(Boolean) ?? [], [activityOverview]);
+  const territoryOptions = useMemo<DashboardTerritoryOption[]>(() => {
+    const options = new Map<string, DashboardTerritoryOption>();
+    const mergeOption = (option: DashboardTerritoryOption) => {
+      const existing = options.get(option.territoryId);
+      options.set(option.territoryId, {
+        ...existing,
+        ...option,
+        territoryDescription: option.territoryDescription ?? existing?.territoryDescription ?? null,
+        medRepName: option.medRepName ?? existing?.medRepName ?? null,
+        color: option.color ?? existing?.color ?? null,
+        metrics: option.metrics ?? existing?.metrics,
+      });
+    };
+    summary?.territories?.forEach(mergeOption);
+    activityOverview?.territories?.forEach((territory) => mergeOption(territory));
+    const selectedDay = callMap?.days?.[selectedCallMapDate];
+    selectedDay?.territories?.forEach(mergeOption);
+    callMapTerritories.forEach((territoryId) => mergeOption({ territoryId }));
+    return [...options.values()].sort((a, b) => a.territoryId.localeCompare(b.territoryId));
+  }, [activityOverview, callMap?.days, callMapTerritories, selectedCallMapDate, summary?.territories]);
+  const territoryOptionIds = useMemo(() => territoryOptions.map((territory) => territory.territoryId), [territoryOptions]);
+  const selectedTerritoryOption = selectedTerritoryId === 'ALL' ? null : territoryOptions.find((territory) => territory.territoryId === selectedTerritoryId) ?? null;
+  const selectedMetrics = useMemo(() => {
+    if (selectedTerritoryId === 'ALL') return summary?.metrics ?? null;
+    return selectedTerritoryOption?.metrics ?? activityMetrics(activityOverview, selectedTerritoryId) ?? null;
+  }, [activityOverview, selectedTerritoryId, selectedTerritoryOption?.metrics, summary?.metrics]);
   const selectedActivityOverview = useMemo<DashboardActivityOverview | null>(() => {
-    if (!activityOverview || selectedActivityTerritoryId === 'ALL') return activityOverview;
-    const territoryOverview = activityOverview.territories?.find((territory) => territory.territoryId === selectedActivityTerritoryId);
+    if (!activityOverview || selectedTerritoryId === 'ALL') return activityOverview;
+    const territoryOverview = activityOverview.territories?.find((territory) => territory.territoryId === selectedTerritoryId);
     if (!territoryOverview) return activityOverview;
     return { ...activityOverview, points: territoryOverview.points };
-  }, [activityOverview, selectedActivityTerritoryId]);
+  }, [activityOverview, selectedTerritoryId]);
 
   useEffect(() => {
-    if (selectedActivityTerritoryId === 'ALL') return;
-    if (!activityTerritoryOptions.includes(selectedActivityTerritoryId)) setSelectedActivityTerritoryId('ALL');
-  }, [activityTerritoryOptions, selectedActivityTerritoryId]);
+    if (selectedTerritoryId === 'ALL') return;
+    if (!territoryOptionIds.includes(selectedTerritoryId)) setSelectedTerritoryId('ALL');
+  }, [territoryOptionIds, selectedTerritoryId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -675,14 +742,50 @@ export function Dashboard({ session }: DashboardProps) {
           </div>
         </div>
 
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">Dashboard territory scope</p>
+              <p className="mt-1 text-sm text-slate-500">KPIs, activity overview, and call map visibility follow this selection without reloading the map.</p>
+            </div>
+            <label className="flex min-w-72 flex-col gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Territory
+              <select
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-700 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-blue-100"
+                value={selectedTerritoryId}
+                onChange={(event) => setSelectedTerritoryId(event.target.value)}
+              >
+                <option value="ALL">(ALL) All territories</option>
+                {territoryOptions.map((territory) => <option key={territory.territoryId} value={territory.territoryId}>{territoryDisplayName(territory)}</option>)}
+              </select>
+            </label>
+          </div>
+          {selectedTerritoryOption ? (
+            <div className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600 md:grid-cols-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Territory</p>
+                <p className="mt-1 font-bold text-slate-950">{selectedTerritoryOption.territoryId}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Territory name</p>
+                <p className="mt-1 font-semibold text-slate-800">{selectedTerritoryOption.territoryDescription ?? 'Not available yet'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">MedRep</p>
+                <p className="mt-1 font-semibold text-slate-800">{selectedTerritoryOption.medRepName ?? 'Not available yet'}</p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Target Calls" value={formatMetric(summary?.metrics?.targetCalls)} helper="Planned itinerary rows, month-to-date" icon={FileText} isLoading={isLoading} />
-          <StatCard label="Actual Calls" value={formatMetric(summary?.metrics?.actualCalls)} helper="Visited itinerary rows, month-to-date" icon={Users} isLoading={isLoading} />
-          <StatCard label="Call Rate" value={formatPercent(summary?.metrics?.callRate)} helper="Actual calls ÷ target calls" icon={TrendingUp} isLoading={isLoading} />
+          <StatCard label="Target Calls" value={formatMetric(selectedMetrics?.targetCalls)} helper={selectedTerritoryId === 'ALL' ? 'Planned itinerary rows, month-to-date' : 'Selected territory planned rows, month-to-date'} icon={FileText} isLoading={isLoading} />
+          <StatCard label="Actual Calls" value={formatMetric(selectedMetrics?.actualCalls)} helper={selectedTerritoryId === 'ALL' ? 'Visited itinerary rows, month-to-date' : 'Selected territory visited rows, month-to-date'} icon={Users} isLoading={isLoading} />
+          <StatCard label="Call Rate" value={formatPercent(selectedMetrics?.callRate)} helper="Actual calls ÷ target calls" icon={TrendingUp} isLoading={isLoading} />
           <StatCard
             label="Doctors Reached"
-            value={formatPercent(summary?.metrics?.doctorsReachedRate)}
-            helper={`${formatMetric(summary?.metrics?.doctorsReached)} / ${formatMetric(summary?.metrics?.doctorsPlanned)} planned doctors to date`}
+            value={formatPercent(selectedMetrics?.doctorsReachedRate)}
+            helper={`${formatMetric(selectedMetrics?.doctorsReached)} / ${formatMetric(selectedMetrics?.doctorsPlanned)} planned doctors to date`}
             icon={RefreshCcw}
             isLoading={isLoading}
           />
@@ -697,27 +800,12 @@ export function Dashboard({ session }: DashboardProps) {
                   Target and actual calls by day for the current cycle{activityOverview ? ` (${activityOverview.startDate} to ${activityOverview.endDate})` : ''}.
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-3">
-                {activityTerritoryOptions.length ? (
-                  <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Territory
-                    <select
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-700 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-blue-100"
-                      value={selectedActivityTerritoryId}
-                      onChange={(event) => setSelectedActivityTerritoryId(event.target.value)}
-                    >
-                      <option value="ALL">(ALL)</option>
-                      {activityTerritoryOptions.map((territoryId) => <option key={territoryId} value={territoryId}>{territoryId}</option>)}
-                    </select>
-                  </label>
-                ) : null}
-                <BarChart3 className="h-5 w-5 text-slate-400" />
-              </div>
+              <BarChart3 className="h-5 w-5 text-slate-400" />
             </div>
-            <ActivityOverviewChart activityOverview={selectedActivityOverview} selectedTerritoryId={selectedActivityTerritoryId} status={activityStatus} />
+            <ActivityOverviewChart activityOverview={selectedActivityOverview} selectedTerritoryId={selectedTerritoryId} status={activityStatus} />
           </div>
 
-          <CallMap callMap={callMap} status={callMapStatus} progress={{ loaded: callMapLoadedCount, total: callMapTerritories.length }} selectedDate={selectedCallMapDate} onDateChange={setSelectedCallMapDate} loadedTerritoryIds={loadedTerritoryIds} loadingTerritoryIds={loadingTerritoryIds} onTerritorySelect={(territoryId) => loadTerritoryNowRef.current?.(territoryId)} />
+          <CallMap callMap={callMap} status={callMapStatus} progress={{ loaded: callMapLoadedCount, total: callMapTerritories.length }} selectedDate={selectedCallMapDate} selectedTerritoryId={selectedTerritoryId} onDateChange={setSelectedCallMapDate} onTerritoryChange={setSelectedTerritoryId} loadedTerritoryIds={loadedTerritoryIds} loadingTerritoryIds={loadingTerritoryIds} onTerritorySelect={(territoryId) => loadTerritoryNowRef.current?.(territoryId)} />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">

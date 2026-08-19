@@ -201,7 +201,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
         {showActualCalls && actualCallsLoading ? <div className="border-b border-slate-100 bg-emerald-50/40 px-5 py-3"><LoadingState label={`Checking actual-call count for ${selectedTerritory}…`} /></div> : null}
         {showActualCalls && actualCallsLoaded && !actualCallsLoading && actualCalls.length === 0 ? <div className="border-b border-amber-100 bg-amber-50 px-5 py-3 text-center text-sm text-amber-800">Checked the current cycle: no actual calls were found for territory {selectedTerritory}.</div> : null}
         {isLoading ? <div className="p-12"><LoadingState label={`Loading and counting doctors for ${selectedTerritory}…`} /></div> : null}
-        {!isLoading && !doctors.length && !error ? <div className="p-10 text-center"><p className="text-sm font-semibold text-slate-700">No matching doctors to display.</p><p className="mt-1 text-xs text-slate-500">The territory doctor count was checked after loading. Try clearing the letter or search filter.</p></div> : null}
+        {!isLoading && !doctors.length && !error ? <div className="p-10 text-center"><p className="text-sm font-semibold text-slate-700">No matching doctors to display.</p><p className="mt-1 text-xs text-slate-500">The territory doctor count was checked after loading. Try clearing the search filter.</p></div> : null}
         <div className="max-h-[65vh] overflow-auto">
           <div className="min-w-[920px]">
             <div className="sticky top-0 z-10 grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] border-b border-slate-300 bg-white text-xs font-semibold text-slate-700">

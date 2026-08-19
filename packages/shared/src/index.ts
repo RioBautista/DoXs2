@@ -128,6 +128,8 @@ export type DashboardActivityPoint = {
 
 export type DashboardActivityOverviewTerritory = {
   territoryId: string;
+  territoryDescription?: string | null;
+  medRepName?: string | null;
   points: DashboardActivityPoint[];
 };
 
@@ -160,11 +162,19 @@ export type DashboardCacheMetadata = {
   staleDetectedAt?: string | null;
 };
 
+export type DashboardSummaryTerritory = {
+  territoryId: string;
+  territoryDescription?: string | null;
+  medRepName?: string | null;
+  metrics: DashboardMetrics;
+};
+
 export type DashboardSummary = {
   ok: boolean;
   clientSlug?: string | null;
   dataSource: DashboardDataSource;
   metrics: DashboardMetrics;
+  territories?: DashboardSummaryTerritory[];
   message?: string;
   cache?: DashboardCacheMetadata;
 };

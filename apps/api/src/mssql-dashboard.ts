@@ -1,4 +1,5 @@
 import sql from 'mssql';
+import type { DashboardMetrics } from '@doxs/shared';
 
 export type ClientMSSQLConfig = {
   clientSlug: string;
@@ -257,6 +258,118 @@ async function countDistinctItineraryDoctorsMonthToDate(pool: sql.ConnectionPool
       ${territoryFilter ? `and ${territoryFilter}` : ''}
   `);
   return Number(result.recordset[0]?.value ?? 0);
+}
+
+
+async function countItineraryRowsMonthToDateByTerritory(pool: sql.ConnectionPool, dateColumn: 'ITINERARY_DATE' | 'VISIT_DATE', territories: string[] = []) {
+  const scope = normalizedTerritories(territories);
+  const request = pool.request();
+  addTerritoryInputs(request, scope);
+  const territoryFilter = territoryPredicate(scope, 'TERRITORY_ID');
+  const { startExpression, endExpression } = monthToDateBounds();
+  const result = await request.query<{ territory_id: string | null; value: number }>(`
+    select nullif(ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))), '') as territory_id, count_big(*) as value
+    from [dbo].[ITINERARY]
+    where try_convert(datetime2, [${dateColumn}]) >= ${startExpression}
+      and try_convert(datetime2, [${dateColumn}]) < ${endExpression}
+      ${territoryFilter ? `and ${territoryFilter}` : ''}
+    group by nullif(ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))), '')
+  `);
+  return new Map(result.recordset.flatMap((row) => row.territory_id ? [[row.territory_id, Number(row.value ?? 0)] as const] : []));
+}
+
+async function countDistinctItineraryDoctorsMonthToDateByTerritory(pool: sql.ConnectionPool, dateColumn: 'ITINERARY_DATE' | 'VISIT_DATE', territories: string[] = []) {
+  const scope = normalizedTerritories(territories);
+  const request = pool.request();
+  addTerritoryInputs(request, scope);
+  const territoryFilter = territoryPredicate(scope, 'TERRITORY_ID');
+  const { startExpression, endExpression } = monthToDateBounds();
+  const result = await request.query<{ territory_id: string | null; value: number }>(`
+    select nullif(ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))), '') as territory_id, count(distinct ltrim(rtrim(cast([MD_ID] as varchar(128))))) as value
+    from [dbo].[ITINERARY]
+    where [MD_ID] is not null
+      and ltrim(rtrim(cast([MD_ID] as varchar(128)))) <> ''
+      and try_convert(datetime2, [${dateColumn}]) >= ${startExpression}
+      and try_convert(datetime2, [${dateColumn}]) < ${endExpression}
+      ${territoryFilter ? `and ${territoryFilter}` : ''}
+    group by nullif(ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))), '')
+  `);
+  return new Map(result.recordset.flatMap((row) => row.territory_id ? [[row.territory_id, Number(row.value ?? 0)] as const] : []));
+}
+
+async function getTerritoryDetails(pool: sql.ConnectionPool, territories: string[] = []) {
+  const scope = normalizedTerritories(territories);
+  const details = new Map<string, { medRepName: string | null; territoryDescription: string | null }>();
+  if (!(await tableExists(pool, 'dbo', 'PSR_ITINERARY'))) return details;
+  const hasTerritory = await columnExists(pool, 'dbo', 'PSR_ITINERARY', 'TERRITORY_ID');
+  if (!hasTerritory) return details;
+  const hasDate = await columnExists(pool, 'dbo', 'PSR_ITINERARY', 'ITINERARY_DATE');
+  const hasMedRepName = await columnExists(pool, 'dbo', 'PSR_ITINERARY', 'MED_REP_NAME');
+  const hasTerritoryDescription = await columnExists(pool, 'dbo', 'PSR_ITINERARY', 'TERRITORY_DESCRIPTION');
+  if (!hasMedRepName && !hasTerritoryDescription) return details;
+  const request = pool.request();
+  addTerritoryInputs(request, scope);
+  const territoryFilter = territoryPredicate(scope, 'TERRITORY_ID');
+  const dateOrder = hasDate ? 'try_convert(datetime2, [ITINERARY_DATE]) desc,' : '';
+  const medRepExpression = hasMedRepName ? "nullif(ltrim(rtrim(cast([MED_REP_NAME] as varchar(256)))), '')" : 'cast(null as varchar(256))';
+  const territoryDescriptionExpression = hasTerritoryDescription ? "nullif(ltrim(rtrim(cast([TERRITORY_DESCRIPTION] as varchar(256)))), '')" : 'cast(null as varchar(256))';
+  const result = await request.query<{ territory_id: string; med_rep_name: string | null; territory_description: string | null }>(`
+    select territory_id, med_rep_name, territory_description
+    from (
+      select
+        ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))) as territory_id,
+        ${medRepExpression} as med_rep_name,
+        ${territoryDescriptionExpression} as territory_description,
+        row_number() over (partition by ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))) order by ${dateOrder} ltrim(rtrim(cast([TERRITORY_ID] as varchar(128))))) as rn
+      from [dbo].[PSR_ITINERARY]
+      where [TERRITORY_ID] is not null
+        and ltrim(rtrim(cast([TERRITORY_ID] as varchar(128)))) <> ''
+        ${territoryFilter ? `and ${territoryFilter}` : ''}
+    ) ranked
+    where rn = 1
+  `);
+  for (const row of result.recordset) details.set(row.territory_id, { medRepName: row.med_rep_name ?? null, territoryDescription: row.territory_description ?? null });
+  return details;
+}
+
+function metricSet(targetCalls: number | null, actualCalls: number | null, doctorsReached: number | null, doctorsPlanned: number | null): DashboardMetrics {
+  return {
+    targetCalls,
+    actualCalls,
+    callRate: targetCalls && targetCalls > 0 && actualCalls !== null ? Number(((actualCalls / targetCalls) * 100).toFixed(1)) : null,
+    doctorsReached,
+    doctorsPlanned,
+    doctorsReachedRate: doctorsPlanned && doctorsPlanned > 0 && doctorsReached !== null ? Number(((doctorsReached / doctorsPlanned) * 100).toFixed(1)) : null,
+  };
+}
+
+async function getDashboardSummaryTerritories(pool: sql.ConnectionPool, options: { hasItineraryDate: boolean; hasVisitDate: boolean; hasDoctorId: boolean }, territories: string[] = []) {
+  const [targetByTerritory, actualByTerritory, reachedByTerritory, plannedByTerritory, territoryDetails] = await Promise.all([
+    options.hasItineraryDate ? countItineraryRowsMonthToDateByTerritory(pool, 'ITINERARY_DATE', territories) : Promise.resolve(new Map<string, number>()),
+    options.hasVisitDate ? countItineraryRowsMonthToDateByTerritory(pool, 'VISIT_DATE', territories) : Promise.resolve(new Map<string, number>()),
+    options.hasVisitDate && options.hasDoctorId ? countDistinctItineraryDoctorsMonthToDateByTerritory(pool, 'VISIT_DATE', territories) : Promise.resolve(new Map<string, number>()),
+    options.hasItineraryDate && options.hasDoctorId ? countDistinctItineraryDoctorsMonthToDateByTerritory(pool, 'ITINERARY_DATE', territories) : Promise.resolve(new Map<string, number>()),
+    getTerritoryDetails(pool, territories),
+  ]);
+  const territoryIds = new Set<string>([
+    ...normalizedTerritories(territories),
+    ...targetByTerritory.keys(),
+    ...actualByTerritory.keys(),
+    ...reachedByTerritory.keys(),
+    ...plannedByTerritory.keys(),
+    ...territoryDetails.keys(),
+  ]);
+  return [...territoryIds].sort().map((territoryId) => ({
+    territoryId,
+    territoryDescription: territoryDetails.get(territoryId)?.territoryDescription ?? null,
+    medRepName: territoryDetails.get(territoryId)?.medRepName ?? null,
+    metrics: metricSet(
+      options.hasItineraryDate ? targetByTerritory.get(territoryId) ?? 0 : null,
+      options.hasVisitDate ? actualByTerritory.get(territoryId) ?? 0 : null,
+      options.hasVisitDate && options.hasDoctorId ? reachedByTerritory.get(territoryId) ?? 0 : null,
+      options.hasItineraryDate && options.hasDoctorId ? plannedByTerritory.get(territoryId) ?? 0 : null,
+    ),
+  }));
 }
 
 async function getSalesOrderMonthToDate(pool: sql.ConnectionPool) {
@@ -678,9 +791,15 @@ async function getActivityOverview(pool: sql.ConnectionPool, territories: string
     .map(({ dayOfWeek: _dayOfWeek, ...point }) => point);
 
   const points = makePoints(byDate);
+  const territoryDetails = await getTerritoryDetails(pool, scope);
   const territorySeries = Array.from(byTerritoryDate.entries())
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([territoryId, dateMap]) => ({ territoryId, points: makePoints(dateMap) }));
+    .map(([territoryId, dateMap]) => ({
+      territoryId,
+      territoryDescription: territoryDetails.get(territoryId)?.territoryDescription ?? null,
+      medRepName: territoryDetails.get(territoryId)?.medRepName ?? null,
+      points: makePoints(dateMap),
+    }));
   const startMonth = new Intl.DateTimeFormat('en', { month: 'long', timeZone: 'UTC' }).format(new Date(`${period.startDate}T00:00:00.000Z`));
   const endMonth = new Intl.DateTimeFormat('en', { month: 'long', timeZone: 'UTC' }).format(new Date(`${period.endDate}T00:00:00.000Z`));
 
@@ -830,21 +949,14 @@ export async function getDashboardSummary(clientSlug?: string | null, territorie
       hasVisitDate && hasDoctorId ? countDistinctItineraryDoctorsMonthToDate(pool, 'VISIT_DATE', territories) : Promise.resolve(null),
       hasItineraryDate && hasDoctorId ? countDistinctItineraryDoctorsMonthToDate(pool, 'ITINERARY_DATE', territories) : Promise.resolve(null),
     ]);
-    const callRate = targetCalls && targetCalls > 0 && actualCalls !== null ? Number(((actualCalls / targetCalls) * 100).toFixed(1)) : null;
-    const doctorsReachedRate = doctorsPlanned && doctorsPlanned > 0 && doctorsReached !== null ? Number(((doctorsReached / doctorsPlanned) * 100).toFixed(1)) : null;
+    const territoryMetrics = await getDashboardSummaryTerritories(pool, { hasItineraryDate, hasVisitDate, hasDoctorId }, territories);
 
     return {
       ok: true,
       clientSlug: config.clientSlug,
       dataSource: { type: 'mssql' as const, status: 'configured' as const },
-      metrics: {
-        targetCalls,
-        actualCalls,
-        callRate,
-        doctorsReached,
-        doctorsPlanned,
-        doctorsReachedRate,
-      },
+      metrics: metricSet(targetCalls, actualCalls, doctorsReached, doctorsPlanned),
+      territories: territoryMetrics,
       message: territories.length > 0 ? 'Live read-only MSSQL dashboard metrics loaded with territory scope.' : 'Live read-only MSSQL dashboard metrics loaded.',
     };
   } catch (error) {
