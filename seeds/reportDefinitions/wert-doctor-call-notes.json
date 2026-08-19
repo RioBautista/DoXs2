@@ -1,8 +1,8 @@
 {
   "title": "Doctor Call Notes",
-  "description": "WERT-specific Doctor Call Notes report based on legacy rptDoctorCallNotes.php. Shows call notes by doctor/date within the user's territory scope.",
+  "description": "WERT-specific Doctor Call Notes report based on legacy rptDoctorCallNotes.php. Shows call notes by doctor/date within the user's territory scope. Disabled after correction: Tagging Verification is the intended report entry.",
   "category": "WERT Reports / Call Activity",
-  "status": "enabled",
+  "status": "disabled",
   "clientSlugs": [
     "wert"
   ],
@@ -63,7 +63,7 @@
     "territoryScope": {
       "mode": "required"
     },
-    "sql": "select top 5000 ltrim(rtrim(cast(cn.TERRITORY_ID as varchar(128)))) as territory_id, ltrim(rtrim(cast(cn.MD_ID as varchar(128)))) as md_id, cn.[DATE] as note_date, replace(convert(varchar(max), cn.NOTES), 'ÂyesÂ / ÂnoÂ', 'yes/no') as notes from [dbo].[call_notes] cn where cn.MD_ID is not null and ltrim(rtrim(cast(cn.MD_ID as varchar(128)))) <> 'UNK' and cn.[DATE] >= @startDate and cn.[DATE] < dateadd(day, 1, @endDate) and (@mdId is null or @mdId = '' or ltrim(rtrim(cast(cn.MD_ID as varchar(128)))) = @mdId) {{territoryPredicate:cn.TERRITORY_ID}} order by cn.[DATE] desc, cn.TERRITORY_ID, cn.MD_ID"
+    "sql": "select top 5000 ltrim(rtrim(cast(cn.TERRITORY_ID as varchar(128)))) as territory_id, ltrim(rtrim(cast(cn.MD_ID as varchar(128)))) as md_id, cn.[DATE] as note_date, replace(convert(varchar(max), cn.NOTES), '\u00c2\u0091yes\u00c2\u0092 / \u00c2\u0091no\u00c2\u0092', 'yes/no') as notes from [dbo].[call_notes] cn where cn.MD_ID is not null and ltrim(rtrim(cast(cn.MD_ID as varchar(128)))) <> 'UNK' and cn.[DATE] >= @startDate and cn.[DATE] < dateadd(day, 1, @endDate) and (@mdId is null or @mdId = '' or ltrim(rtrim(cast(cn.MD_ID as varchar(128)))) = @mdId) {{territoryPredicate:cn.TERRITORY_ID}} order by cn.[DATE] desc, cn.TERRITORY_ID, cn.MD_ID"
   },
   "businessFormulas": [],
   "dataSourceDefinition": {
