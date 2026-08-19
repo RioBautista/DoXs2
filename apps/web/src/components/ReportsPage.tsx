@@ -72,8 +72,7 @@ const YTD_COLUMN_IDS = new Set(['ytd_customer_count', 'ytd_visited', 'ytd_percen
 type ReportColumn = ReportDefinitionSummary['columns'][number];
 
 function hasCtdYtdColumnGroups(columns: ReportColumn[]) {
-  return ['ctd_customer_count', 'ctd_visited', 'ctd_percentage', 'ytd_customer_count', 'ytd_visited', 'ytd_percentage']
-    .every((columnId) => columns.some((column) => column.id === columnId));
+  return columns.some((column) => column.id.startsWith('ctd_')) && columns.some((column) => column.id.startsWith('ytd_'));
 }
 
 function reportRowType(row: Record<string, unknown>) {
@@ -91,8 +90,8 @@ function rowClass(row: Record<string, unknown>, index: number) {
 }
 
 function groupForColumn(columnId: string): 'ctd' | 'ytd' | null {
-  if (CTD_COLUMN_IDS.has(columnId)) return 'ctd';
-  if (YTD_COLUMN_IDS.has(columnId)) return 'ytd';
+  if (CTD_COLUMN_IDS.has(columnId) || columnId.startsWith('ctd_')) return 'ctd';
+  if (YTD_COLUMN_IDS.has(columnId) || columnId.startsWith('ytd_')) return 'ytd';
   return null;
 }
 
