@@ -155,6 +155,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
   const dayTotals = totals?.byWeekDay ?? loadedDayTotals;
   const grandTotal = totals?.grandTotal ?? doctors.reduce((total, doctor) => total + plannedVisitCount(doctor), 0);
   const actualGrandTotal = actualWeekTotals.reduce((sum, count) => sum + count, 0);
+  const doctorsWithActualCalls = new Set(actualCalls.map((call) => call.doctorId));
   const todayDate = new Date(`${manilaToday()}T00:00:00.000Z`);
   const fallbackCycleStart = Date.UTC(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), 1);
   const todayCycleStart = actualCycle ? new Date(`${actualCycle.startDate}T00:00:00.000Z`).getTime() : fallbackCycleStart;
@@ -230,8 +231,9 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
               {doctors.map((doctor) => {
                 const planned = plannedVisitCount(doctor);
                 const mismatch = doctor.frequency !== null && doctor.frequency !== planned;
+                const hasNoActualCalls = showActualCalls && actualCallsLoaded && !actualCallsLoading && !doctorsWithActualCalls.has(doctor.doctorId);
                 return (
-                  <article key={`${doctor.doctorId}:${doctor.territoryId}`} className="grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] hover:bg-slate-50">
+                  <article key={`${doctor.doctorId}:${doctor.territoryId}`} className={`grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] ${hasNoActualCalls ? 'bg-red-50/70 hover:bg-red-50' : 'hover:bg-slate-50'}`}>
                     <div className="min-w-0 px-4 py-2.5">
                       <p className="truncate text-sm font-semibold text-slate-950">{doctor.displayName || doctor.doctorId}</p>
                       <p className="mt-0.5 truncate text-[11px] text-slate-500">{doctor.doctorId} · {doctor.territoryId} · {[doctor.specialtyCode, doctor.classCode && `Class ${doctor.classCode}`].filter(Boolean).join(' · ') || 'No classification'}</p>
@@ -240,7 +242,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
                       <span title={mismatch ? `${planned} planned visits do not match ${doctor.frequency}× frequency` : undefined} className={`rounded-md px-2 py-1 text-xs font-bold ${mismatch ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{doctor.frequency ?? '—'}×</span>
                     </div>
                     {doctor.visitDays.map((day, weekIndex) => (
-                      <div key={weekIndex} className={`grid grid-cols-5 border-l border-slate-300 ${weekIndex % 2 ? 'bg-indigo-50/70' : 'bg-blue-50/60'}`}>
+                      <div key={weekIndex} className={`grid grid-cols-5 border-l border-slate-300 ${hasNoActualCalls ? 'bg-red-50/70' : weekIndex % 2 ? 'bg-indigo-50/70' : 'bg-blue-50/60'}`}>
                         {[1, 2, 3, 4, 5].map((dayNumber) => {
                           const actualCount = actualCallCells.get(`${doctor.doctorId}:${weekIndex}:${dayNumber}`) ?? 0;
                           const isPlanned = day === dayNumber;
