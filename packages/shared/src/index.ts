@@ -126,12 +126,18 @@ export type DashboardActivityPoint = {
   actualCalls: number;
 };
 
+export type DashboardActivityOverviewTerritory = {
+  territoryId: string;
+  points: DashboardActivityPoint[];
+};
+
 export type DashboardActivityOverview = {
   periodKey: string;
   startDate: string;
   endDate: string;
   xAxisTitle?: string;
   points: DashboardActivityPoint[];
+  territories?: DashboardActivityOverviewTerritory[];
 };
 
 export type DashboardDataSource = {

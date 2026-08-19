@@ -375,8 +375,9 @@ function CallMap({ callMap, status, progress, selectedDate, onDateChange, loaded
   );
 }
 
-function ActivityOverviewChart({ activityOverview, status }: { activityOverview: DashboardActivityOverview | null; status: 'loading' | 'loaded' | 'error' }) {
-  const points = activityOverview?.points ?? [];
+function ActivityOverviewChart({ activityOverview, selectedTerritoryId, status }: { activityOverview: DashboardActivityOverview | null; selectedTerritoryId: string; status: 'loading' | 'loaded' | 'error' }) {
+  const selectedTerritory = selectedTerritoryId === 'ALL' ? null : activityOverview?.territories?.find((territory) => territory.territoryId === selectedTerritoryId) ?? null;
+  const points = selectedTerritory?.points ?? activityOverview?.points ?? [];
   const option = {
     color: ['#2563eb', '#10b981'],
     tooltip: { trigger: 'axis' },
@@ -439,6 +440,7 @@ export function Dashboard({ session }: DashboardProps) {
   const [activityStatus, setActivityStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [callMapStatus, setCallMapStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [activityOverview, setActivityOverview] = useState<DashboardActivityOverview | null>(null);
+  const [selectedActivityTerritoryId, setSelectedActivityTerritoryId] = useState('ALL');
   const [callMap, setCallMap] = useState<DashboardCallMap | null>(null);
   const [callMapCycle, setCallMapCycle] = useState<DashboardCallMap['cycle'] | null>(null);
   const [callMapTerritories, setCallMapTerritories] = useState<string[]>([]);
@@ -447,6 +449,18 @@ export function Dashboard({ session }: DashboardProps) {
   const [loadedTerritoryIds, setLoadedTerritoryIds] = useState<Set<string>>(() => new Set());
   const [loadingTerritoryIds, setLoadingTerritoryIds] = useState<Set<string>>(() => new Set());
   const loadTerritoryNowRef = useRef<((territoryId: string) => void) | null>(null);
+  const activityTerritoryOptions = useMemo(() => activityOverview?.territories?.map((territory) => territory.territoryId).filter(Boolean) ?? [], [activityOverview]);
+  const selectedActivityOverview = useMemo<DashboardActivityOverview | null>(() => {
+    if (!activityOverview || selectedActivityTerritoryId === 'ALL') return activityOverview;
+    const territoryOverview = activityOverview.territories?.find((territory) => territory.territoryId === selectedActivityTerritoryId);
+    if (!territoryOverview) return activityOverview;
+    return { ...activityOverview, points: territoryOverview.points };
+  }, [activityOverview, selectedActivityTerritoryId]);
+
+  useEffect(() => {
+    if (selectedActivityTerritoryId === 'ALL') return;
+    if (!activityTerritoryOptions.includes(selectedActivityTerritoryId)) setSelectedActivityTerritoryId('ALL');
+  }, [activityTerritoryOptions, selectedActivityTerritoryId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -676,16 +690,31 @@ export function Dashboard({ session }: DashboardProps) {
 
         <div className="grid gap-6">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-center justify-between gap-4">
+            <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-sm font-semibold text-slate-950">Activity overview</p>
                 <p className="mt-1 text-sm text-slate-500">
                   Target and actual calls by day for the current cycle{activityOverview ? ` (${activityOverview.startDate} to ${activityOverview.endDate})` : ''}.
                 </p>
               </div>
-              <BarChart3 className="h-5 w-5 text-slate-400" />
+              <div className="flex flex-wrap items-center gap-3">
+                {activityTerritoryOptions.length ? (
+                  <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Territory
+                    <select
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-700 shadow-sm outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-blue-100"
+                      value={selectedActivityTerritoryId}
+                      onChange={(event) => setSelectedActivityTerritoryId(event.target.value)}
+                    >
+                      <option value="ALL">(ALL)</option>
+                      {activityTerritoryOptions.map((territoryId) => <option key={territoryId} value={territoryId}>{territoryId}</option>)}
+                    </select>
+                  </label>
+                ) : null}
+                <BarChart3 className="h-5 w-5 text-slate-400" />
+              </div>
             </div>
-            <ActivityOverviewChart activityOverview={activityOverview} status={activityStatus} />
+            <ActivityOverviewChart activityOverview={selectedActivityOverview} selectedTerritoryId={selectedActivityTerritoryId} status={activityStatus} />
           </div>
 
           <CallMap callMap={callMap} status={callMapStatus} progress={{ loaded: callMapLoadedCount, total: callMapTerritories.length }} selectedDate={selectedCallMapDate} onDateChange={setSelectedCallMapDate} loadedTerritoryIds={loadedTerritoryIds} loadingTerritoryIds={loadingTerritoryIds} onTerritorySelect={(territoryId) => loadTerritoryNowRef.current?.(territoryId)} />

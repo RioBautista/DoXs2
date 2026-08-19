@@ -602,48 +602,69 @@ async function getActivityOverview(pool: sql.ConnectionPool, territories: string
   const period = await getCurrentCyclePeriod(pool);
   const dates = enumerateDates(period.startDate, period.endDate);
   const byDate = new Map(dates.map((date) => [date, { targetCalls: 0, actualCalls: 0 }]));
+  const byTerritoryDate = new Map<string, Map<string, { targetCalls: number; actualCalls: number }>>();
   const scope = normalizedTerritories(territories);
   const territoryFilter = territoryPredicate(scope, 'TERRITORY_ID');
 
+  const ensureTerritoryDate = (territoryId: string, date: string) => {
+    let territoryPoints = byTerritoryDate.get(territoryId);
+    if (!territoryPoints) {
+      territoryPoints = new Map(dates.map((date) => [date, { targetCalls: 0, actualCalls: 0 }]));
+      byTerritoryDate.set(territoryId, territoryPoints);
+    }
+    return territoryPoints.get(date);
+  };
+
+  const endDateExclusive = new Date(new Date(`${period.endDate}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000);
   const targetRequest = pool.request()
     .input('startDate', sql.Date, period.startDate)
-    .input('endDateExclusive', sql.Date, new Date(`${period.endDate}T00:00:00.000Z`).getTime() ? new Date(new Date(`${period.endDate}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000) : period.endDate);
+    .input('endDateExclusive', sql.Date, endDateExclusive);
   addTerritoryInputs(targetRequest, scope);
-  const targetRows = await targetRequest.query<{ activity_date: Date | string; value: number }>(`
-    select convert(date, [ITINERARY_DATE]) as activity_date, count_big(*) as value
+  const targetRows = await targetRequest.query<{ activity_date: Date | string; territory_id: string | null; value: number }>(`
+    select convert(date, [ITINERARY_DATE]) as activity_date, nullif(ltrim(rtrim(convert(nvarchar(64), [TERRITORY_ID]))), '') as territory_id, count_big(*) as value
     from [dbo].[ITINERARY]
     where try_convert(datetime2, [ITINERARY_DATE]) >= @startDate
       and try_convert(datetime2, [ITINERARY_DATE]) < @endDateExclusive
       ${territoryFilter ? `and ${territoryFilter}` : ''}
-    group by convert(date, [ITINERARY_DATE])
+    group by convert(date, [ITINERARY_DATE]), nullif(ltrim(rtrim(convert(nvarchar(64), [TERRITORY_ID]))), '')
   `);
 
   const actualRequest = pool.request()
     .input('startDate', sql.Date, period.startDate)
-    .input('endDateExclusive', sql.Date, new Date(new Date(`${period.endDate}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000));
+    .input('endDateExclusive', sql.Date, endDateExclusive);
   addTerritoryInputs(actualRequest, scope);
-  const actualRows = await actualRequest.query<{ activity_date: Date | string; value: number }>(`
-    select convert(date, [VISIT_DATE]) as activity_date, count_big(*) as value
+  const actualRows = await actualRequest.query<{ activity_date: Date | string; territory_id: string | null; value: number }>(`
+    select convert(date, [VISIT_DATE]) as activity_date, nullif(ltrim(rtrim(convert(nvarchar(64), [TERRITORY_ID]))), '') as territory_id, count_big(*) as value
     from [dbo].[ITINERARY]
     where try_convert(datetime2, [VISIT_DATE]) >= @startDate
       and try_convert(datetime2, [VISIT_DATE]) < @endDateExclusive
       ${territoryFilter ? `and ${territoryFilter}` : ''}
-    group by convert(date, [VISIT_DATE])
+    group by convert(date, [VISIT_DATE]), nullif(ltrim(rtrim(convert(nvarchar(64), [TERRITORY_ID]))), '')
   `);
 
   for (const row of targetRows.recordset) {
     const key = isoDateOnly(row.activity_date);
+    const value = Number(row.value ?? 0);
     const point = byDate.get(key);
-    if (point) point.targetCalls = Number(row.value ?? 0);
+    if (point) point.targetCalls += value;
+    if (row.territory_id) {
+      const territoryPoint = ensureTerritoryDate(row.territory_id, key);
+      if (territoryPoint) territoryPoint.targetCalls += value;
+    }
   }
   for (const row of actualRows.recordset) {
     const key = isoDateOnly(row.activity_date);
+    const value = Number(row.value ?? 0);
     const point = byDate.get(key);
-    if (point) point.actualCalls = Number(row.value ?? 0);
+    if (point) point.actualCalls += value;
+    if (row.territory_id) {
+      const territoryPoint = ensureTerritoryDate(row.territory_id, key);
+      if (territoryPoint) territoryPoint.actualCalls += value;
+    }
   }
 
-  const rawPoints = dates.map((date) => {
-    const point = byDate.get(date);
+  const makePoints = (dateMap: Map<string, { targetCalls: number; actualCalls: number }>) => dates.map((date) => {
+    const point = dateMap.get(date);
     const dateValue = new Date(`${date}T00:00:00.000Z`);
     return {
       date,
@@ -652,10 +673,14 @@ async function getActivityOverview(pool: sql.ConnectionPool, territories: string
       actualCalls: point?.actualCalls ?? 0,
       dayOfWeek: dateValue.getUTCDay(),
     };
-  });
-  const points = rawPoints
+  })
     .filter((point) => point.dayOfWeek !== 0 && point.dayOfWeek !== 6 || point.targetCalls > 0 || point.actualCalls > 0)
     .map(({ dayOfWeek: _dayOfWeek, ...point }) => point);
+
+  const points = makePoints(byDate);
+  const territorySeries = Array.from(byTerritoryDate.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([territoryId, dateMap]) => ({ territoryId, points: makePoints(dateMap) }));
   const startMonth = new Intl.DateTimeFormat('en', { month: 'long', timeZone: 'UTC' }).format(new Date(`${period.startDate}T00:00:00.000Z`));
   const endMonth = new Intl.DateTimeFormat('en', { month: 'long', timeZone: 'UTC' }).format(new Date(`${period.endDate}T00:00:00.000Z`));
 
@@ -663,6 +688,7 @@ async function getActivityOverview(pool: sql.ConnectionPool, territories: string
     ...period,
     xAxisTitle: startMonth === endMonth ? startMonth : `${startMonth}–${endMonth}`,
     points,
+    territories: territorySeries,
   };
 }
 

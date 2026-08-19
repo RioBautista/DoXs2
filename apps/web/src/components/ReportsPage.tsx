@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, FileText, Loader2, Play, RefreshCcw } from 'lucide-react';
+import { AlertCircle, Download, FileText, Loader2, Play, Printer, RefreshCcw } from 'lucide-react';
 import { listReports, runReport, type ReportDefinitionSummary, type ReportRunResult } from '../api';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -40,14 +40,30 @@ function alignClass(align?: 'left' | 'right' | 'center') {
   return 'text-left';
 }
 
-function formatCell(value: unknown, format?: string) {
+function formatDateLike(value: unknown, withTime = false) {
+  if (value instanceof Date) return value.toLocaleDateString('en-US');
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}:\d{2}))?/);
+  if (!match) return text;
+  const date = `${match[2]}/${match[3]}/${match[1]}`;
+  return withTime && match[4] ? `${date} ${match[4]}` : date;
+}
+
+function formatCell(value: unknown, format?: string, type?: 'text' | 'number' | 'date' | 'datetime' | 'boolean') {
   if (value === null || value === undefined || value === '') return '—';
+  if (type === 'date') return formatDateLike(value);
+  if (type === 'datetime') return formatDateLike(value, true);
   if (typeof value === 'number') {
-    const text = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
+    const text = new Intl.NumberFormat(undefined, { minimumFractionDigits: format === 'percent' ? 2 : 0, maximumFractionDigits: 2 }).format(value);
     return format === 'percent' ? `${text}%` : text;
   }
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   return String(value);
+}
+
+function csvEscape(value: string) {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
 function groupReports(reports: ReportDefinitionSummary[]) {
@@ -117,6 +133,24 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
       setIsRunning(false);
     }
   }
+
+  function downloadCsv() {
+    if (!selectedReport || !rows.length || !columns.length) return;
+    const lines = [
+      columns.map((column) => csvEscape(column.label)).join(','),
+      ...rows.map((row) => columns.map((column) => csvEscape(formatCell(row[column.id], column.format, column.type))).join(',')),
+    ];
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${selectedReport.title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'report'}.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
 
   const columns = result?.report?.columns?.length ? result.report.columns : selectedReport?.columns ?? [];
   const rows = result?.rows ?? [];
@@ -231,40 +265,54 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
             )}
           </form>
 
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 p-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm print:border-0 print:shadow-none">
+            <div className="border-b border-slate-200 p-5 print:hidden">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-base font-bold text-slate-950">Report output</h3>
                   <p className="mt-1 text-sm text-slate-500">
                     {result?.ok ? `${result.rowCount ?? rows.length} rows${result.truncated ? ' · truncated by max rows' : ''}` : 'Run a report to render results.'}
                   </p>
                 </div>
-                {result?.generatedAt ? <p className="text-xs text-slate-400">Generated {new Date(result.generatedAt).toLocaleString()}</p> : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  {result?.generatedAt ? <p className="mr-2 text-xs text-slate-400">Generated {new Date(result.generatedAt).toLocaleString()}</p> : null}
+                  <button type="button" disabled={!rows.length} onClick={downloadCsv} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                    <Download className="h-3.5 w-3.5" /> Excel / CSV
+                  </button>
+                  <button type="button" disabled={!rows.length} onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                    <Printer className="h-3.5 w-3.5" /> Print
+                  </button>
+                </div>
               </div>
             </div>
             {rows.length ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 text-sm">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      {columns.map((column) => (
-                        <th key={column.id} className={`whitespace-nowrap px-4 py-3 ${alignClass(column.align)} text-xs font-bold uppercase tracking-wide text-slate-500`}>{column.label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {rows.map((row, index) => (
-                      <tr key={index} className="hover:bg-slate-50/80">
+              <div className="bg-white p-4 print:p-0">
+                <div className="mb-3 text-center">
+                  <h4 className="text-lg font-bold uppercase tracking-wide text-slate-950 print:text-black">{selectedReport?.title}</h4>
+                  <p className="mt-1 text-xs text-slate-500 print:text-black">{clientName}{result?.generatedAt ? ` · ${new Date(result.generatedAt).toLocaleString()}` : ''}</p>
+                </div>
+                <div id="tbl-container" className="max-h-[65vh] overflow-auto border border-slate-300 print:max-h-none print:overflow-visible">
+                  <table id="tbl" className="min-w-full border-collapse bg-white font-[Arial] text-[10px] leading-tight text-black">
+                    <thead>
+                      <tr>
                         {columns.map((column) => (
-                          <td key={column.id} className={`whitespace-nowrap px-4 py-3 ${alignClass(column.align)} text-slate-700`}>
-                            {formatCell(row[column.id], column.format)}
-                          </td>
+                          <th key={column.id} id="ctitle" className={`sticky top-0 z-10 whitespace-nowrap border border-white bg-[navy] px-2 py-1.5 ${alignClass(column.align)} text-center text-[12px] font-bold uppercase text-white print:static`}>{column.label}</th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {rows.map((row, index) => (
+                        <tr key={index} className="odd:bg-white even:bg-slate-50/40">
+                          {columns.map((column) => (
+                            <td key={column.id} id={column.type === 'number' ? 'decimal' : 'data'} className={`whitespace-nowrap border border-[#cccccc] px-2 py-1 ${alignClass(column.align)} ${column.type === 'number' ? 'text-right text-[12px]' : 'text-left text-[10pt]'}`}>
+                              {formatCell(row[column.id], column.format, column.type)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               <div className="p-8 text-center text-sm text-slate-500">
@@ -272,6 +320,7 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
               </div>
             )}
           </div>
+
         </section>
       </div>
     </div>
