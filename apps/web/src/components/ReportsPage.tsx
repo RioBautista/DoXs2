@@ -71,8 +71,34 @@ const YTD_COLUMN_IDS = new Set(['ytd_customer_count', 'ytd_visited', 'ytd_percen
 
 type ReportColumn = ReportDefinitionSummary['columns'][number];
 
-function hasCtdYtdColumnGroups(columns: ReportColumn[]) {
-  return columns.some((column) => column.id.startsWith('ctd_')) && columns.some((column) => column.id.startsWith('ytd_'));
+type ColumnGroup = { key: string; label: string; columns: ReportColumn[]; kind: 'ctd' | 'ytd' | 'day' };
+
+function buildColumnGroups(columns: ReportColumn[]) {
+  const groups: ColumnGroup[] = [];
+  const groupedColumnIds = new Set<string>();
+
+  const ctdColumns = columns.filter((column) => column.id.startsWith('ctd_'));
+  const ytdColumns = columns.filter((column) => column.id.startsWith('ytd_'));
+  if (ctdColumns.length && ytdColumns.length) {
+    groups.push({ key: 'ctd', label: 'CTD', columns: ctdColumns, kind: 'ctd' });
+    groups.push({ key: 'ytd', label: 'YTD', columns: ytdColumns, kind: 'ytd' });
+    for (const column of [...ctdColumns, ...ytdColumns]) groupedColumnIds.add(column.id);
+    return { groups, rowHeaderColumns: columns.filter((column) => !groupedColumnIds.has(column.id)) };
+  }
+
+  for (const column of columns) {
+    const match = column.id.match(/^d(\d{2})_(ap|up|all)$/);
+    if (!match) continue;
+    let group = groups.find((item) => item.key === match[1]);
+    if (!group) {
+      group = { key: match[1], label: match[1], columns: [], kind: 'day' };
+      groups.push(group);
+    }
+    group.columns.push(column);
+    groupedColumnIds.add(column.id);
+  }
+
+  return { groups, rowHeaderColumns: groups.length ? columns.filter((column) => !groupedColumnIds.has(column.id)) : columns };
 }
 
 function reportRowType(row: Record<string, unknown>) {
@@ -89,14 +115,16 @@ function rowClass(row: Record<string, unknown>, index: number) {
   return index % 2 === 0 ? 'bg-white' : 'bg-slate-50/40';
 }
 
-function groupForColumn(columnId: string): 'ctd' | 'ytd' | null {
-  if (CTD_COLUMN_IDS.has(columnId) || columnId.startsWith('ctd_')) return 'ctd';
-  if (YTD_COLUMN_IDS.has(columnId) || columnId.startsWith('ytd_')) return 'ytd';
-  return null;
+function groupedColumnLabel(column: ReportColumn) {
+  const dayMatch = column.id.match(/^d\d{2}_(ap|up|all)$/);
+  if (dayMatch) return dayMatch[1].toUpperCase() === 'ALL' ? 'All' : dayMatch[1].toUpperCase();
+  return column.label;
 }
 
-function groupHeaderClass(group: 'ctd' | 'ytd') {
-  return group === 'ctd' ? 'bg-[#1f4e79]' : 'bg-[navy]';
+function groupHeaderClass(group: ColumnGroup['kind']) {
+  if (group === 'ctd') return 'bg-[#1f4e79]';
+  if (group === 'day') return 'bg-[#1f4e79]';
+  return 'bg-[navy]';
 }
 
 function groupReports(reports: ReportDefinitionSummary[]) {
@@ -203,10 +231,8 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
 
   const columns = result?.report?.columns?.length ? result.report.columns : selectedReport?.columns ?? [];
   const rows = result?.rows ?? [];
-  const hasGroupedOutput = hasCtdYtdColumnGroups(columns);
-  const rowHeaderColumns = hasGroupedOutput ? columns.filter((column) => !groupForColumn(column.id)) : columns;
-  const ctdColumns = hasGroupedOutput ? columns.filter((column) => groupForColumn(column.id) === 'ctd') : [];
-  const ytdColumns = hasGroupedOutput ? columns.filter((column) => groupForColumn(column.id) === 'ytd') : [];
+  const { groups: columnGroups, rowHeaderColumns } = buildColumnGroups(columns);
+  const hasGroupedOutput = columnGroups.length > 0;
   const generatedLabel = result?.generatedAt ? new Date(result.generatedAt).toLocaleString() : null;
   const outputShellClass = isOutputFullscreen
     ? 'fixed inset-0 z-50 flex flex-col rounded-none border-0 bg-white shadow-2xl print:static print:block print:shadow-none'
@@ -371,13 +397,14 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
                             {rowHeaderColumns.map((column) => (
                               <th key={column.id} rowSpan={2} id="ctitle" className={`sticky top-0 z-10 whitespace-nowrap border border-white bg-[navy] ${headerCellClass} ${alignClass(column.align)} text-center font-bold uppercase text-white print:static`}>{column.label}</th>
                             ))}
-                            <th colSpan={ctdColumns.length} className={`sticky top-0 z-10 whitespace-nowrap border border-white ${headerCellClass} text-center font-bold uppercase text-white print:static ${groupHeaderClass('ctd')}`}>CTD</th>
-                            <th colSpan={ytdColumns.length} className={`sticky top-0 z-10 whitespace-nowrap border border-white ${headerCellClass} text-center font-bold uppercase text-white print:static ${groupHeaderClass('ytd')}`}>YTD</th>
+                            {columnGroups.map((group) => (
+                              <th key={group.key} colSpan={group.columns.length} className={`sticky top-0 z-10 whitespace-nowrap border border-white ${headerCellClass} text-center font-bold uppercase text-white print:static ${groupHeaderClass(group.kind)}`}>{group.label}</th>
+                            ))}
                           </tr>
                           <tr>
-                            {[...ctdColumns, ...ytdColumns].map((column) => (
-                              <th key={column.id} id="ctitle" className={`sticky top-6 z-10 whitespace-nowrap border border-white ${headerCellClass} ${alignClass(column.align)} text-center font-bold uppercase text-white print:static ${groupHeaderClass(groupForColumn(column.id) ?? 'ytd')}`}>{column.label}</th>
-                            ))}
+                            {columnGroups.flatMap((group) => group.columns.map((column) => (
+                              <th key={column.id} id="ctitle" className={`sticky top-6 z-10 whitespace-nowrap border border-white ${headerCellClass} ${alignClass(column.align)} text-center font-bold uppercase text-white print:static ${groupHeaderClass(group.kind)}`}>{groupedColumnLabel(column)}</th>
+                            )))}
                           </tr>
                         </>
                       ) : (

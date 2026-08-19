@@ -1,6 +1,6 @@
 {
   "title": "Daily Coverage Report",
-  "description": "Global/core iDoXs report showing as-planned and unplanned daily visit coverage, modeled after legacy rptDailyCoverageReport.php.",
+  "description": "Production-style iDoXs Daily Coverage Report pivoting the selected period by day of month, with AP/UP/All under each day.",
   "category": "Global Reports / Field Execution",
   "status": "enabled",
   "clientSlugs": [],
@@ -9,7 +9,8 @@
     "Admin",
     "District Manager",
     "Manager",
-    "Medical Representative"
+    "Medical Representative",
+    "SysAdmin"
   ],
   "outputs": [
     "html",
@@ -31,37 +32,572 @@
   ],
   "columns": [
     {
-      "id": "visit_date",
-      "label": "Visit Date",
-      "type": "date"
+      "id": "region",
+      "label": "Region"
     },
     {
-      "id": "district_id",
+      "id": "district",
       "label": "District"
     },
     {
-      "id": "territory_id",
-      "label": "Territory ID"
-    },
-    {
-      "id": "territory_name",
+      "id": "territory",
       "label": "Territory"
     },
     {
-      "id": "ap",
-      "label": "AP",
+      "id": "d01_ap",
+      "label": "01 AP",
       "type": "number",
       "align": "right"
     },
     {
-      "id": "up",
-      "label": "UP",
+      "id": "d01_up",
+      "label": "01 UP",
       "type": "number",
       "align": "right"
     },
     {
-      "id": "all_calls",
-      "label": "All",
+      "id": "d01_all",
+      "label": "01 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d02_ap",
+      "label": "02 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d02_up",
+      "label": "02 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d02_all",
+      "label": "02 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d03_ap",
+      "label": "03 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d03_up",
+      "label": "03 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d03_all",
+      "label": "03 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d04_ap",
+      "label": "04 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d04_up",
+      "label": "04 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d04_all",
+      "label": "04 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d05_ap",
+      "label": "05 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d05_up",
+      "label": "05 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d05_all",
+      "label": "05 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d06_ap",
+      "label": "06 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d06_up",
+      "label": "06 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d06_all",
+      "label": "06 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d07_ap",
+      "label": "07 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d07_up",
+      "label": "07 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d07_all",
+      "label": "07 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d08_ap",
+      "label": "08 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d08_up",
+      "label": "08 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d08_all",
+      "label": "08 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d09_ap",
+      "label": "09 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d09_up",
+      "label": "09 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d09_all",
+      "label": "09 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d10_ap",
+      "label": "10 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d10_up",
+      "label": "10 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d10_all",
+      "label": "10 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d11_ap",
+      "label": "11 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d11_up",
+      "label": "11 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d11_all",
+      "label": "11 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d12_ap",
+      "label": "12 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d12_up",
+      "label": "12 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d12_all",
+      "label": "12 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d13_ap",
+      "label": "13 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d13_up",
+      "label": "13 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d13_all",
+      "label": "13 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d14_ap",
+      "label": "14 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d14_up",
+      "label": "14 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d14_all",
+      "label": "14 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d15_ap",
+      "label": "15 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d15_up",
+      "label": "15 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d15_all",
+      "label": "15 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d16_ap",
+      "label": "16 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d16_up",
+      "label": "16 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d16_all",
+      "label": "16 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d17_ap",
+      "label": "17 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d17_up",
+      "label": "17 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d17_all",
+      "label": "17 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d18_ap",
+      "label": "18 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d18_up",
+      "label": "18 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d18_all",
+      "label": "18 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d19_ap",
+      "label": "19 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d19_up",
+      "label": "19 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d19_all",
+      "label": "19 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d20_ap",
+      "label": "20 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d20_up",
+      "label": "20 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d20_all",
+      "label": "20 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d21_ap",
+      "label": "21 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d21_up",
+      "label": "21 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d21_all",
+      "label": "21 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d22_ap",
+      "label": "22 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d22_up",
+      "label": "22 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d22_all",
+      "label": "22 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d23_ap",
+      "label": "23 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d23_up",
+      "label": "23 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d23_all",
+      "label": "23 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d24_ap",
+      "label": "24 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d24_up",
+      "label": "24 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d24_all",
+      "label": "24 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d25_ap",
+      "label": "25 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d25_up",
+      "label": "25 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d25_all",
+      "label": "25 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d26_ap",
+      "label": "26 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d26_up",
+      "label": "26 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d26_all",
+      "label": "26 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d27_ap",
+      "label": "27 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d27_up",
+      "label": "27 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d27_all",
+      "label": "27 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d28_ap",
+      "label": "28 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d28_up",
+      "label": "28 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d28_all",
+      "label": "28 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d29_ap",
+      "label": "29 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d29_up",
+      "label": "29 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d29_all",
+      "label": "29 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d30_ap",
+      "label": "30 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d30_up",
+      "label": "30 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d30_all",
+      "label": "30 All",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d31_ap",
+      "label": "31 AP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d31_up",
+      "label": "31 UP",
+      "type": "number",
+      "align": "right"
+    },
+    {
+      "id": "d31_all",
+      "label": "31 All",
       "type": "number",
       "align": "right"
     }
@@ -72,7 +608,7 @@
     "territoryScope": {
       "mode": "required"
     },
-    "sql": "select top 5000 convert(date, i.VISIT_DATE) as visit_date, pi.DISTRICT_ID as district_id, ltrim(rtrim(cast(pi.TERRITORY_ID as varchar(128)))) as territory_id, nullif(ltrim(rtrim(concat('(', pi.TERRITORY_ID, ')', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') as territory_name, sum(case when floor(convert(float, i.ITINERARY_DATE)) = floor(convert(float, i.VISIT_DATE)) then 1 else 0 end) as ap, sum(case when floor(convert(float, i.ITINERARY_DATE)) <> floor(convert(float, i.VISIT_DATE)) then 1 else 0 end) as up, count_big(*) as all_calls from [dbo].[ITINERARY] i join [dbo].[PSR_ITINERARY] pi on i.ITINERARY_DATE = pi.ITINERARY_DATE and i.PSR_ID = pi.PSR_ID join [dbo].[PSR] p on i.PSR_ID = p.PSR_ID join [dbo].[PERIOD_DEFINITION] pd on pi.[MONTH] = pd.PERIOD_CODE and pi.[YEAR] = pd.FISCAL_YEAR where pi.[MONTH] = @periodCode and pi.[YEAR] = @fiscalYear and i.VISIT_DATE is not null and i.VISIT_DATE between pd.START_DATE and dateadd(day, 1, pd.END_DATE) and p.PSR_ID not like '%rr143%' and p.PSR_ID not like '%rr123%' and i.TERRITORY_ID not in ('RRICT') and p.TERRITORY_ID not in ('RRICT') {{territoryPredicate:i.TERRITORY_ID}} group by convert(date, i.VISIT_DATE), pi.DISTRICT_ID, pi.TERRITORY_ID, nullif(ltrim(rtrim(concat('(', pi.TERRITORY_ID, ')', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') order by visit_date, district_id, territory_id"
+    "sql": "with base as (\n  select coalesce(nullif(ltrim(rtrim(cast(d.REGION_ID as varchar(128)))), ''), '') as region_id,\n         ltrim(rtrim(cast(pi.DISTRICT_ID as varchar(128)))) as district_id,\n         ltrim(rtrim(cast(i.TERRITORY_ID as varchar(128)))) as territory_id,\n         nullif(ltrim(rtrim(concat('(', ltrim(rtrim(cast(i.TERRITORY_ID as varchar(128)))), ')', isnull(p.LAST_NAME, ''), ', ', isnull(p.FIRST_NAME, '')))), '(),') as territory_name,\n         datepart(day, i.VISIT_DATE) as visit_day,\n         case when floor(convert(float, i.ITINERARY_DATE)) = floor(convert(float, i.VISIT_DATE)) then 1 else 0 end as ap,\n         case when floor(convert(float, i.ITINERARY_DATE)) <> floor(convert(float, i.VISIT_DATE)) then 1 else 0 end as up,\n         1 as all_calls\n  from [dbo].[ITINERARY] i\n  join [dbo].[PSR_ITINERARY] pi on i.ITINERARY_DATE = pi.ITINERARY_DATE and i.PSR_ID = pi.PSR_ID\n  join [dbo].[PSR] p on i.PSR_ID = p.PSR_ID\n  join [dbo].[PERIOD_DEFINITION] pd on pi.[MONTH] = pd.PERIOD_CODE and pi.[YEAR] = pd.FISCAL_YEAR\n  left join [dbo].[TERRITORY] t on ltrim(rtrim(cast(i.TERRITORY_ID as varchar(128)))) = ltrim(rtrim(cast(t.TERRITORY_ID as varchar(128))))\n  left join [dbo].[DISTRICT] d on ltrim(rtrim(cast(coalesce(t.DISTRICT_ID, pi.DISTRICT_ID) as varchar(128)))) = ltrim(rtrim(cast(d.DISTRICT_ID as varchar(128))))\n  where pi.[MONTH] = @periodCode and pi.[YEAR] = @fiscalYear\n    and i.VISIT_DATE is not null\n    and i.VISIT_DATE between pd.START_DATE and dateadd(day, 1, pd.END_DATE)\n    and isnull(ltrim(rtrim(cast(pi.PSR_ID as varchar(128)))), '') <> ''\n    and pi.PSR_ID not like '%rr123%' and pi.PSR_ID not like '%rr143%'\n    and i.TERRITORY_ID not in ('RRICT', 'TD', 'UNK')\n    and pi.TERRITORY_ID not in ('RRICT', 'TL', '', '9999')\n    and i.MD_ID not in (select MD_ID from [dbo].[DOCTOR] where SPECIALTY_CODE in ('DRG', 'PHR'))\n    {{territoryPredicate:i.TERRITORY_ID}}\n), aggregated as (\n  select region_id, district_id, territory_id, territory_name,\n         grouping(region_id) as g_region, grouping(district_id) as g_district,\n         grouping(territory_id) as g_territory, grouping(territory_name) as g_territory_name,\n         min(region_id) as __sort_region, min(district_id) as __sort_district, min(territory_id) as __sort_territory,\n    cast(sum(case when visit_day = 1 then ap else 0 end) as int) as d01_ap,\n    cast(sum(case when visit_day = 1 then up else 0 end) as int) as d01_up,\n    cast(sum(case when visit_day = 1 then all_calls else 0 end) as int) as d01_all,\n    cast(sum(case when visit_day = 2 then ap else 0 end) as int) as d02_ap,\n    cast(sum(case when visit_day = 2 then up else 0 end) as int) as d02_up,\n    cast(sum(case when visit_day = 2 then all_calls else 0 end) as int) as d02_all,\n    cast(sum(case when visit_day = 3 then ap else 0 end) as int) as d03_ap,\n    cast(sum(case when visit_day = 3 then up else 0 end) as int) as d03_up,\n    cast(sum(case when visit_day = 3 then all_calls else 0 end) as int) as d03_all,\n    cast(sum(case when visit_day = 4 then ap else 0 end) as int) as d04_ap,\n    cast(sum(case when visit_day = 4 then up else 0 end) as int) as d04_up,\n    cast(sum(case when visit_day = 4 then all_calls else 0 end) as int) as d04_all,\n    cast(sum(case when visit_day = 5 then ap else 0 end) as int) as d05_ap,\n    cast(sum(case when visit_day = 5 then up else 0 end) as int) as d05_up,\n    cast(sum(case when visit_day = 5 then all_calls else 0 end) as int) as d05_all,\n    cast(sum(case when visit_day = 6 then ap else 0 end) as int) as d06_ap,\n    cast(sum(case when visit_day = 6 then up else 0 end) as int) as d06_up,\n    cast(sum(case when visit_day = 6 then all_calls else 0 end) as int) as d06_all,\n    cast(sum(case when visit_day = 7 then ap else 0 end) as int) as d07_ap,\n    cast(sum(case when visit_day = 7 then up else 0 end) as int) as d07_up,\n    cast(sum(case when visit_day = 7 then all_calls else 0 end) as int) as d07_all,\n    cast(sum(case when visit_day = 8 then ap else 0 end) as int) as d08_ap,\n    cast(sum(case when visit_day = 8 then up else 0 end) as int) as d08_up,\n    cast(sum(case when visit_day = 8 then all_calls else 0 end) as int) as d08_all,\n    cast(sum(case when visit_day = 9 then ap else 0 end) as int) as d09_ap,\n    cast(sum(case when visit_day = 9 then up else 0 end) as int) as d09_up,\n    cast(sum(case when visit_day = 9 then all_calls else 0 end) as int) as d09_all,\n    cast(sum(case when visit_day = 10 then ap else 0 end) as int) as d10_ap,\n    cast(sum(case when visit_day = 10 then up else 0 end) as int) as d10_up,\n    cast(sum(case when visit_day = 10 then all_calls else 0 end) as int) as d10_all,\n    cast(sum(case when visit_day = 11 then ap else 0 end) as int) as d11_ap,\n    cast(sum(case when visit_day = 11 then up else 0 end) as int) as d11_up,\n    cast(sum(case when visit_day = 11 then all_calls else 0 end) as int) as d11_all,\n    cast(sum(case when visit_day = 12 then ap else 0 end) as int) as d12_ap,\n    cast(sum(case when visit_day = 12 then up else 0 end) as int) as d12_up,\n    cast(sum(case when visit_day = 12 then all_calls else 0 end) as int) as d12_all,\n    cast(sum(case when visit_day = 13 then ap else 0 end) as int) as d13_ap,\n    cast(sum(case when visit_day = 13 then up else 0 end) as int) as d13_up,\n    cast(sum(case when visit_day = 13 then all_calls else 0 end) as int) as d13_all,\n    cast(sum(case when visit_day = 14 then ap else 0 end) as int) as d14_ap,\n    cast(sum(case when visit_day = 14 then up else 0 end) as int) as d14_up,\n    cast(sum(case when visit_day = 14 then all_calls else 0 end) as int) as d14_all,\n    cast(sum(case when visit_day = 15 then ap else 0 end) as int) as d15_ap,\n    cast(sum(case when visit_day = 15 then up else 0 end) as int) as d15_up,\n    cast(sum(case when visit_day = 15 then all_calls else 0 end) as int) as d15_all,\n    cast(sum(case when visit_day = 16 then ap else 0 end) as int) as d16_ap,\n    cast(sum(case when visit_day = 16 then up else 0 end) as int) as d16_up,\n    cast(sum(case when visit_day = 16 then all_calls else 0 end) as int) as d16_all,\n    cast(sum(case when visit_day = 17 then ap else 0 end) as int) as d17_ap,\n    cast(sum(case when visit_day = 17 then up else 0 end) as int) as d17_up,\n    cast(sum(case when visit_day = 17 then all_calls else 0 end) as int) as d17_all,\n    cast(sum(case when visit_day = 18 then ap else 0 end) as int) as d18_ap,\n    cast(sum(case when visit_day = 18 then up else 0 end) as int) as d18_up,\n    cast(sum(case when visit_day = 18 then all_calls else 0 end) as int) as d18_all,\n    cast(sum(case when visit_day = 19 then ap else 0 end) as int) as d19_ap,\n    cast(sum(case when visit_day = 19 then up else 0 end) as int) as d19_up,\n    cast(sum(case when visit_day = 19 then all_calls else 0 end) as int) as d19_all,\n    cast(sum(case when visit_day = 20 then ap else 0 end) as int) as d20_ap,\n    cast(sum(case when visit_day = 20 then up else 0 end) as int) as d20_up,\n    cast(sum(case when visit_day = 20 then all_calls else 0 end) as int) as d20_all,\n    cast(sum(case when visit_day = 21 then ap else 0 end) as int) as d21_ap,\n    cast(sum(case when visit_day = 21 then up else 0 end) as int) as d21_up,\n    cast(sum(case when visit_day = 21 then all_calls else 0 end) as int) as d21_all,\n    cast(sum(case when visit_day = 22 then ap else 0 end) as int) as d22_ap,\n    cast(sum(case when visit_day = 22 then up else 0 end) as int) as d22_up,\n    cast(sum(case when visit_day = 22 then all_calls else 0 end) as int) as d22_all,\n    cast(sum(case when visit_day = 23 then ap else 0 end) as int) as d23_ap,\n    cast(sum(case when visit_day = 23 then up else 0 end) as int) as d23_up,\n    cast(sum(case when visit_day = 23 then all_calls else 0 end) as int) as d23_all,\n    cast(sum(case when visit_day = 24 then ap else 0 end) as int) as d24_ap,\n    cast(sum(case when visit_day = 24 then up else 0 end) as int) as d24_up,\n    cast(sum(case when visit_day = 24 then all_calls else 0 end) as int) as d24_all,\n    cast(sum(case when visit_day = 25 then ap else 0 end) as int) as d25_ap,\n    cast(sum(case when visit_day = 25 then up else 0 end) as int) as d25_up,\n    cast(sum(case when visit_day = 25 then all_calls else 0 end) as int) as d25_all,\n    cast(sum(case when visit_day = 26 then ap else 0 end) as int) as d26_ap,\n    cast(sum(case when visit_day = 26 then up else 0 end) as int) as d26_up,\n    cast(sum(case when visit_day = 26 then all_calls else 0 end) as int) as d26_all,\n    cast(sum(case when visit_day = 27 then ap else 0 end) as int) as d27_ap,\n    cast(sum(case when visit_day = 27 then up else 0 end) as int) as d27_up,\n    cast(sum(case when visit_day = 27 then all_calls else 0 end) as int) as d27_all,\n    cast(sum(case when visit_day = 28 then ap else 0 end) as int) as d28_ap,\n    cast(sum(case when visit_day = 28 then up else 0 end) as int) as d28_up,\n    cast(sum(case when visit_day = 28 then all_calls else 0 end) as int) as d28_all,\n    cast(sum(case when visit_day = 29 then ap else 0 end) as int) as d29_ap,\n    cast(sum(case when visit_day = 29 then up else 0 end) as int) as d29_up,\n    cast(sum(case when visit_day = 29 then all_calls else 0 end) as int) as d29_all,\n    cast(sum(case when visit_day = 30 then ap else 0 end) as int) as d30_ap,\n    cast(sum(case when visit_day = 30 then up else 0 end) as int) as d30_up,\n    cast(sum(case when visit_day = 30 then all_calls else 0 end) as int) as d30_all,\n    cast(sum(case when visit_day = 31 then ap else 0 end) as int) as d31_ap,\n    cast(sum(case when visit_day = 31 then up else 0 end) as int) as d31_up,\n    cast(sum(case when visit_day = 31 then all_calls else 0 end) as int) as d31_all\n  from base\n  group by grouping sets ((region_id, district_id, territory_id, territory_name), (region_id, district_id), (region_id), ())\n)\nselect top 5000\n  case when g_region = 1 then '' else isnull(region_id, '') end as region,\n  case when g_district = 1 then '' else isnull(district_id, '') end as district,\n  case when g_region = 1 then '**** GRAND TOTAL ****'\n       when g_district = 1 then concat('**** ', isnull(region_id, ''), ' sub-total')\n       when g_territory = 1 then concat('**** ', isnull(district_id, ''), ' sub-total')\n       else isnull(territory_name, concat('(', territory_id, ')')) end as territory,\n  d01_ap,\n  d01_up,\n  d01_all,\n  d02_ap,\n  d02_up,\n  d02_all,\n  d03_ap,\n  d03_up,\n  d03_all,\n  d04_ap,\n  d04_up,\n  d04_all,\n  d05_ap,\n  d05_up,\n  d05_all,\n  d06_ap,\n  d06_up,\n  d06_all,\n  d07_ap,\n  d07_up,\n  d07_all,\n  d08_ap,\n  d08_up,\n  d08_all,\n  d09_ap,\n  d09_up,\n  d09_all,\n  d10_ap,\n  d10_up,\n  d10_all,\n  d11_ap,\n  d11_up,\n  d11_all,\n  d12_ap,\n  d12_up,\n  d12_all,\n  d13_ap,\n  d13_up,\n  d13_all,\n  d14_ap,\n  d14_up,\n  d14_all,\n  d15_ap,\n  d15_up,\n  d15_all,\n  d16_ap,\n  d16_up,\n  d16_all,\n  d17_ap,\n  d17_up,\n  d17_all,\n  d18_ap,\n  d18_up,\n  d18_all,\n  d19_ap,\n  d19_up,\n  d19_all,\n  d20_ap,\n  d20_up,\n  d20_all,\n  d21_ap,\n  d21_up,\n  d21_all,\n  d22_ap,\n  d22_up,\n  d22_all,\n  d23_ap,\n  d23_up,\n  d23_all,\n  d24_ap,\n  d24_up,\n  d24_all,\n  d25_ap,\n  d25_up,\n  d25_all,\n  d26_ap,\n  d26_up,\n  d26_all,\n  d27_ap,\n  d27_up,\n  d27_all,\n  d28_ap,\n  d28_up,\n  d28_all,\n  d29_ap,\n  d29_up,\n  d29_all,\n  d30_ap,\n  d30_up,\n  d30_all,\n  d31_ap,\n  d31_up,\n  d31_all,\n  case when g_region = 1 then 'grand-total'\n       when g_district = 1 then 'region-total'\n       when g_territory = 1 then 'district-total'\n       else 'detail' end as __rowType,\n  isnull(__sort_region, '') as __sort_region,\n  case when g_district = 1 and g_region = 0 then 1 else 0 end as __sort_region_total,\n  isnull(__sort_district, '') as __sort_district,\n  case when g_territory = 1 and g_district = 0 then 1 else 0 end as __sort_district_total,\n  isnull(__sort_territory, '') as __sort_territory\nfrom aggregated\norder by case when g_region = 1 then 1 else 0 end, __sort_region, __sort_region_total, __sort_district, __sort_district_total, __sort_territory"
   },
   "businessFormulas": [
     {
@@ -143,7 +679,7 @@
       "fiscalYear",
       "periodCode"
     ],
-    "grain": "visit date + district + territory",
-    "notes": "Preserves legacy AP/UP/All semantics. The legacy report pivots dates as columns; DoXs2 starts with normalized rows so the UI can render table/pivot later."
+    "grain": "region + district + territory rows, pivoted by visit day with AP/UP/All measures",
+    "notes": "Matches legacy rptDailyCoverageReport.php shape: Region/District grouping, Territory rows, day-of-month columns, AP/UP/All measures under each day, plus district/region/grand total rows. Uses PSR_ITINERARY.YEAR/MONTH for selected period and excludes legacy non-doctor/demo territory data."
   }
 }
