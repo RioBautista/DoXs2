@@ -66,6 +66,37 @@ function csvEscape(value: string) {
   return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
+const CTD_COLUMN_IDS = new Set(['ctd_customer_count', 'ctd_visited', 'ctd_percentage']);
+const YTD_COLUMN_IDS = new Set(['ytd_customer_count', 'ytd_visited', 'ytd_percentage']);
+
+type ReportColumn = ReportDefinitionSummary['columns'][number];
+
+function hasCtdYtdColumnGroups(columns: ReportColumn[]) {
+  return ['ctd_customer_count', 'ctd_visited', 'ctd_percentage', 'ytd_customer_count', 'ytd_visited', 'ytd_percentage']
+    .every((columnId) => columns.some((column) => column.id === columnId));
+}
+
+function reportRowType(row: Record<string, unknown>) {
+  return String(row.__rowType ?? '').trim();
+}
+
+function rowClass(row: Record<string, unknown>, index: number) {
+  const type = reportRowType(row);
+  if (type === 'grand-total') return 'bg-amber-200 font-bold';
+  if (type.endsWith('-total')) return 'bg-amber-100 font-bold';
+  return index % 2 === 0 ? 'bg-white' : 'bg-slate-50/40';
+}
+
+function groupForColumn(columnId: string): 'ctd' | 'ytd' | null {
+  if (CTD_COLUMN_IDS.has(columnId)) return 'ctd';
+  if (YTD_COLUMN_IDS.has(columnId)) return 'ytd';
+  return null;
+}
+
+function groupHeaderClass(group: 'ctd' | 'ytd') {
+  return group === 'ctd' ? 'bg-[#1f4e79]' : 'bg-[navy]';
+}
+
 function groupReports(reports: ReportDefinitionSummary[]) {
   return reports.reduce<Record<string, ReportDefinitionSummary[]>>((groups, report) => {
     const category = report.category || 'Reports';
@@ -170,6 +201,10 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
 
   const columns = result?.report?.columns?.length ? result.report.columns : selectedReport?.columns ?? [];
   const rows = result?.rows ?? [];
+  const hasGroupedOutput = hasCtdYtdColumnGroups(columns);
+  const rowHeaderColumns = hasGroupedOutput ? columns.filter((column) => !groupForColumn(column.id)) : columns;
+  const ctdColumns = hasGroupedOutput ? columns.filter((column) => groupForColumn(column.id) === 'ctd') : [];
+  const ytdColumns = hasGroupedOutput ? columns.filter((column) => groupForColumn(column.id) === 'ytd') : [];
   const generatedLabel = result?.generatedAt ? new Date(result.generatedAt).toLocaleString() : null;
   const outputShellClass = isOutputFullscreen
     ? 'fixed inset-0 z-50 flex flex-col rounded-none border-0 bg-white shadow-2xl print:static print:block print:shadow-none'
@@ -321,17 +356,34 @@ export function ReportsPage({ clientName }: ReportsPageProps) {
                 <div id="tbl-container" className={tableContainerClass}>
                   <table id="tbl" className="min-w-full border-collapse bg-white font-[Arial] text-[10px] leading-tight text-black">
                     <thead>
-                      <tr>
-                        {columns.map((column) => (
-                          <th key={column.id} id="ctitle" className={`sticky top-0 z-10 whitespace-nowrap border border-white bg-[navy] px-2 py-1.5 ${alignClass(column.align)} text-center text-[12px] font-bold uppercase text-white print:static`}>{column.label}</th>
-                        ))}
-                      </tr>
+                      {hasGroupedOutput ? (
+                        <>
+                          <tr>
+                            {rowHeaderColumns.map((column) => (
+                              <th key={column.id} rowSpan={2} id="ctitle" className={`sticky top-0 z-10 whitespace-nowrap border border-white bg-[navy] px-2 py-1.5 ${alignClass(column.align)} text-center text-[12px] font-bold uppercase text-white print:static`}>{column.label}</th>
+                            ))}
+                            <th colSpan={ctdColumns.length} className={`sticky top-0 z-10 whitespace-nowrap border border-white px-2 py-1.5 text-center text-[12px] font-bold uppercase text-white print:static ${groupHeaderClass('ctd')}`}>CTD</th>
+                            <th colSpan={ytdColumns.length} className={`sticky top-0 z-10 whitespace-nowrap border border-white px-2 py-1.5 text-center text-[12px] font-bold uppercase text-white print:static ${groupHeaderClass('ytd')}`}>YTD</th>
+                          </tr>
+                          <tr>
+                            {[...ctdColumns, ...ytdColumns].map((column) => (
+                              <th key={column.id} id="ctitle" className={`sticky top-6 z-10 whitespace-nowrap border border-white px-2 py-1.5 ${alignClass(column.align)} text-center text-[12px] font-bold uppercase text-white print:static ${groupHeaderClass(groupForColumn(column.id) ?? 'ytd')}`}>{column.label}</th>
+                            ))}
+                          </tr>
+                        </>
+                      ) : (
+                        <tr>
+                          {columns.map((column) => (
+                            <th key={column.id} id="ctitle" className={`sticky top-0 z-10 whitespace-nowrap border border-white bg-[navy] px-2 py-1.5 ${alignClass(column.align)} text-center text-[12px] font-bold uppercase text-white print:static`}>{column.label}</th>
+                          ))}
+                        </tr>
+                      )}
                     </thead>
                     <tbody>
                       {rows.map((row, index) => (
-                        <tr key={index} className="odd:bg-white even:bg-slate-50/40">
+                        <tr key={index} className={rowClass(row, index)}>
                           {columns.map((column) => (
-                            <td key={column.id} id={column.type === 'number' ? 'decimal' : 'data'} className={`whitespace-nowrap border border-[#cccccc] px-2 py-1 ${alignClass(column.align)} ${column.type === 'number' ? 'text-right text-[12px]' : 'text-left text-[10pt]'}`}>
+                            <td key={column.id} id={column.type === 'number' ? 'decimal' : 'data'} className={`whitespace-nowrap border border-[#cccccc] px-2 py-1 ${alignClass(column.align)} ${column.type === 'number' ? 'text-right text-[12px]' : 'text-left text-[10pt]'} ${reportRowType(row) !== 'detail' && column.id === 'territory' ? 'text-center' : ''}`}>
                               {formatCell(row[column.id], column.format, column.type)}
                             </td>
                           ))}
