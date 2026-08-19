@@ -64,6 +64,10 @@ function hasZeroActivityOverview(activityOverview: DashboardActivityOverview | n
   return points.length > 0 && points.every((point) => point.targetCalls === 0 && point.actualCalls === 0);
 }
 
+function isMissingActivityTerritorySeries(activityOverview: DashboardActivityOverview | null | undefined) {
+  return !Array.isArray(activityOverview?.territories);
+}
+
 function viewCachePathFor(clientId: string, scopeHash: string, viewKey: string) {
   return `iDoXs_Clients/${clientId}/scopeCaches/${scopeHash}/viewCaches/${viewKey}`;
 }
@@ -161,6 +165,7 @@ export async function readFreshDashboardActivityOverviewCache(scope: DashboardSc
   if (data.stale || data.cache?.stale) return null;
   if (!data.expiresAt || Date.parse(data.expiresAt) <= Date.now()) return null;
   if (containsOnlyUserScopeSentinel(data.scopeDefinition?.territories ?? []) && hasZeroActivityOverview(data.activityOverview)) return null;
+  if (isMissingActivityTerritorySeries(data.activityOverview)) return null;
   return {
     ...data,
     cache: {
