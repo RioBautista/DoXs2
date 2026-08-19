@@ -1,0 +1,100 @@
+{
+  "title": "Doctor Call Notes",
+  "description": "WERT-specific Doctor Call Notes report based on legacy rptDoctorCallNotes.php. Shows call notes by doctor/date within the user's territory scope.",
+  "category": "WERT Reports / Call Activity",
+  "status": "enabled",
+  "clientSlugs": [
+    "wert"
+  ],
+  "allowedRoles": [
+    "DocCS Admin",
+    "Admin",
+    "District Manager",
+    "Manager",
+    "Medical Representative",
+    "SysAdmin"
+  ],
+  "outputs": [
+    "html",
+    "csv"
+  ],
+  "filters": [
+    {
+      "id": "startDate",
+      "label": "Start date",
+      "type": "date",
+      "required": true
+    },
+    {
+      "id": "endDate",
+      "label": "End date",
+      "type": "date",
+      "required": true
+    },
+    {
+      "id": "mdId",
+      "label": "MD ID (optional)",
+      "type": "text",
+      "required": false
+    }
+  ],
+  "columns": [
+    {
+      "id": "territory_id",
+      "label": "Territory ID"
+    },
+    {
+      "id": "md_id",
+      "label": "MD ID"
+    },
+    {
+      "id": "note_date",
+      "label": "Date",
+      "type": "datetime"
+    },
+    {
+      "id": "notes",
+      "label": "Notes"
+    }
+  ],
+  "source": {
+    "type": "mssql",
+    "maxRows": 5000,
+    "territoryScope": {
+      "mode": "required"
+    },
+    "sql": "select top 5000 ltrim(rtrim(cast(cn.TERRITORY_ID as varchar(128)))) as territory_id, ltrim(rtrim(cast(cn.MD_ID as varchar(128)))) as md_id, cn.[DATE] as note_date, replace(convert(varchar(max), cn.NOTES), 'ÂyesÂ / ÂnoÂ', 'yes/no') as notes from [dbo].[call_notes] cn where cn.MD_ID is not null and ltrim(rtrim(cast(cn.MD_ID as varchar(128)))) <> 'UNK' and cn.[DATE] >= @startDate and cn.[DATE] < dateadd(day, 1, @endDate) and (@mdId is null or @mdId = '' or ltrim(rtrim(cast(cn.MD_ID as varchar(128)))) = @mdId) {{territoryPredicate:cn.TERRITORY_ID}} order by cn.[DATE] desc, cn.TERRITORY_ID, cn.MD_ID"
+  },
+  "businessFormulas": [],
+  "dataSourceDefinition": {
+    "type": "mssql",
+    "classification": "wert-client-specific-report",
+    "legacyReportFile": "rptDoctorCallNotes.php",
+    "primaryTables": [
+      "call_notes"
+    ],
+    "requiredFields": {
+      "call_notes": [
+        "PSR_ID",
+        "MD_ID",
+        "DATE",
+        "NOTES",
+        "TERRITORY_ID"
+      ]
+    },
+    "scopeRules": [
+      "clientSlugs restricted to wert",
+      "required territory scope",
+      "date range required",
+      "optional exact MD ID filter",
+      "exclude UNK MD ID"
+    ],
+    "filtersApplied": [
+      "startDate",
+      "endDate",
+      "mdId"
+    ],
+    "grain": "one call_notes row per note",
+    "notes": "Legacy rptDoctorCallNotes.php was a popup filtered by md_id and exact date from WERT tagging/detail reports. Modern version keeps the same call_notes source but exposes a constrained WERT-only report with required date range and optional MD ID. WERT stores NOTES as b64-prefixed UTF-32BE in some rows; the report API decodes those values for display."
+  }
+}

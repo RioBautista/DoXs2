@@ -96,8 +96,47 @@ async function readFreshReportResultCache(cachePath: string): Promise<ReportRunR
   };
 }
 
+function decodeLegacyBase64Text(value: string) {
+  if (!value.startsWith('b64:')) return value;
+  try {
+    const bytes = Buffer.from(value.slice(4), 'base64');
+    if (!bytes.length) return '';
+    const tryUtf32 = (read: (offset: number) => number) => {
+      let decoded = '';
+      for (let offset = 0; offset + 3 < bytes.length; offset += 4) {
+        const codePoint = read(offset);
+        if (codePoint === 0) continue;
+        if (codePoint > 0x10ffff) return null;
+        decoded += String.fromCodePoint(codePoint);
+      }
+      return decoded;
+    };
+    const candidates = [
+      tryUtf32((offset) => bytes.readUInt32BE(offset)),
+      tryUtf32((offset) => bytes.readUInt32LE(offset)),
+      bytes.toString('utf8'),
+    ].filter((candidate): candidate is string => Boolean(candidate));
+    const printable = candidates.find((candidate) => {
+      const trimmed = candidate.replace(/[\r\n\t]/g, '').trim();
+      if (!trimmed) return false;
+      const printableCount = [...trimmed].filter((char) => char >= ' ' && char !== '�').length;
+      return printableCount / Math.max(trimmed.length, 1) > 0.85;
+    });
+    return printable ?? value;
+  } catch {
+    return value;
+  }
+}
+
+function normalizeReportValue(value: unknown) {
+  if (typeof value !== 'string') return value;
+  return decodeLegacyBase64Text(value).replace(/Â|Â/g, "'");
+}
+
 function stripInternalSortFields(row: Record<string, unknown>) {
-  return Object.fromEntries(Object.entries(row).filter(([key]) => !key.startsWith('__sort_')));
+  return Object.fromEntries(Object.entries(row)
+    .filter(([key]) => !key.startsWith('__sort_'))
+    .map(([key, value]) => [key, normalizeReportValue(value)]));
 }
 
 async function writeReportResultCache(cachePath: string, result: Omit<ReportRunResult, 'cache'>) {
