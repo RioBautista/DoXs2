@@ -121,13 +121,16 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
   }, [showActualCalls, selectedTerritory]);
 
   const actualCallCells = new Map<string, number>();
+  const actualWeekTotals = [0, 0, 0, 0, 0];
   if (showActualCalls && actualCycle) {
     const cycleStart = new Date(`${actualCycle.startDate}T00:00:00.000Z`).getTime();
     for (const call of actualCalls) {
       const callDate = new Date(`${call.callDate}T00:00:00.000Z`);
       const dayNumber = callDate.getUTCDay();
       const weekIndex = Math.floor((Date.UTC(callDate.getUTCFullYear(), callDate.getUTCMonth(), callDate.getUTCDate()) - cycleStart) / (7 * 24 * 60 * 60 * 1000));
-      if (weekIndex < 0 || weekIndex >= 5 || dayNumber < 1 || dayNumber > 5) continue;
+      if (weekIndex < 0 || weekIndex >= 5) continue;
+      actualWeekTotals[weekIndex] += 1;
+      if (dayNumber < 1 || dayNumber > 5) continue;
       const key = `${call.doctorId}:${weekIndex}:${dayNumber}`;
       actualCallCells.set(key, (actualCallCells.get(key) ?? 0) + 1);
     }
@@ -138,6 +141,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
   ));
   const dayTotals = totals?.byWeekDay ?? loadedDayTotals;
   const grandTotal = totals?.grandTotal ?? doctors.reduce((total, doctor) => total + plannedVisitCount(doctor), 0);
+  const actualGrandTotal = actualWeekTotals.reduce((sum, count) => sum + count, 0);
 
   return (
     <div className="space-y-5">
@@ -232,7 +236,7 @@ export function DoctorsPage({ clientName }: DoctorsPageProps) {
                 );
               })}
             </div>
-            {doctors.length ? <div className="grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] border-t border-slate-300 bg-slate-50 text-xs font-bold text-slate-700"><div className="px-4 py-2 text-right">Territory plan total</div><div className="border-l border-slate-200 px-2 py-2 text-center">{grandTotal}</div>{weekLabels.map((week, index) => <div key={week} className="border-l border-slate-200 px-2 py-2 text-center">{dayTotals[index].reduce((sum, count) => sum + count, 0)}</div>)}</div> : null}
+            {doctors.length ? <div className="grid grid-cols-[minmax(250px,1fr)_82px_repeat(5,minmax(105px,.55fr))] border-t border-slate-300 bg-slate-50 text-xs font-bold text-slate-700"><div className="px-4 py-2 text-right">{showActualCalls ? 'Territory total · actual / planned' : 'Territory plan total'}</div><div className="border-l border-slate-200 px-2 py-2 text-center">{showActualCalls ? `${actualCallsLoading ? '…' : actualGrandTotal} / ${grandTotal}` : grandTotal}</div>{weekLabels.map((week, index) => { const plannedWeekTotal = dayTotals[index].reduce((sum, count) => sum + count, 0); return <div key={week} className="border-l border-slate-200 px-2 py-2 text-center">{showActualCalls ? `${actualCallsLoading ? '…' : actualWeekTotals[index]} / ${plannedWeekTotal}` : plannedWeekTotal}</div>; })}</div> : null}
           </div>
         </div>
       </section>
